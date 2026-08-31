@@ -1,4 +1,5 @@
 {
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cool-masala",
   "main": "./workers/app.ts",
   "compatibility_date": "2026-06-01",
@@ -24,5 +25,59 @@
         "ItemStore"
       ]
     }
-  ]
+  ],
+  "env": {
+    "staging": {
+      "name": "cool-masala-staging",
+      "vars": {
+        "APP_ENV": "staging"
+      },
+      "assets": {
+        "directory": "./public/",
+        "binding": "ASSETS"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ITEMS",
+            "class_name": "ItemStore"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "staging-v1",
+          "new_sqlite_classes": [
+            "ItemStore"
+          ]
+        }
+      ]
+    },
+    "production": {
+      "name": "cool-masala-prod",
+      "vars": {
+        "APP_ENV": "production"
+      },
+      "assets": {
+        "directory": "./public/",
+        "binding": "ASSETS"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ITEMS",
+            "class_name": "ItemStore"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "production-v1",
+          "new_sqlite_classes": [
+            "ItemStore"
+          ]
+        }
+      ]
+    }
+  }
 }

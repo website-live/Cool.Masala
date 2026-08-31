@@ -25,3 +25,30 @@ const rows = this.ctx.storage.sql
   .exec("SELECT * FROM items WHERE owner = ?", ownerId)
   .toArray(); // .one() for a single row, .raw() for column arrays
 ```
+
+## GitHub staging and production deployments
+
+The repository uses two deployment environments:
+
+- `staging` branch → `cool-masala-staging` Worker and isolated Durable Object storage.
+- `main` branch → `cool-masala-prod` Worker and isolated Durable Object storage.
+
+The workflow is in `.github/workflows/deploy-cloudflare.yml`. It also supports a manual run with an explicit `target_environment` input. Configure GitHub Actions environments named `staging` and `production`; protect `production` with required reviewers if desired.
+
+Required repository/environment secrets:
+
+- Shared: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+- Staging: `STAGING_ADMIN_ACCESS_KEY`, `STAGING_ADMIN_TOTP_SECRET`, `STAGING_NOTIFICATION_FROM_EMAIL`.
+- Production: `PROD_ADMIN_ACCESS_KEY`, `PROD_ADMIN_TOTP_SECRET`, `PROD_NOTIFICATION_FROM_EMAIL`.
+
+The workflow records the Worker version/deployment ID, URL when Wrangler emits one, branch, and source SHA in the GitHub Actions step summary. For an emergency rollback:
+
+```bash
+bash scripts/rollback-cloudflare.sh production <VERSION_ID>
+# or
+bash scripts/rollback-cloudflare.sh staging <VERSION_ID>
+```
+
+The same rollback is available in Cloudflare Dashboard → Workers & Pages → select the environment Worker → Deployments → version menu → Rollback. This restores the selected Worker version; it does not alter the source branch or Durable Object data.
+
+This app does not currently use KV storage. No fake KV namespace IDs are committed: if KV is added later, create separate staging and production namespaces and add their real IDs under the matching `env` block in `wrangler.jsonc`.
