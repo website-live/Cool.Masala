@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "camelai-project",
+      "name": "cool-masala",
       "dependencies": {
         "@react-router/cloudflare": "^7.16.0",
         "class-variance-authority": "^0.7.1",
