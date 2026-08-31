@@ -70,6 +70,19 @@ if (config.main) {
 // upload as modules (no_bundle semantics). The deploy pipeline
 // (project-worker-bundle) selects modules strictly by these rules and
 // lifts vars/durable_objects/kv_namespaces/r2_buckets/ai/services into API bindings.
+const buildEnvironment = (environment) => ({
+  ...(environment.name ? { name: environment.name } : {}),
+  assets: { directory: "../client", binding: "ASSETS" },
+  ...(environment.vars ? { vars: environment.vars } : {}),
+  ...(environment.durable_objects ? { durable_objects: environment.durable_objects } : {}),
+  ...(environment.migrations ? { migrations: environment.migrations } : {}),
+  ...(environment.kv_namespaces ? { kv_namespaces: environment.kv_namespaces } : {}),
+  ...(environment.r2_buckets ? { r2_buckets: environment.r2_buckets } : {}),
+  ...(environment.ai ? { ai: environment.ai } : {}),
+  ...(environment.services ? { services: environment.services } : {}),
+  ...(environment.bindings ? { bindings: environment.bindings } : {}),
+});
+
 const manifest = {
   main: "worker.js",
   no_bundle: true,
@@ -85,6 +98,7 @@ const manifest = {
   ...(config.ai ? { ai: config.ai } : {}),
   ...(config.services ? { services: config.services } : {}),
   ...(config.bindings ? { bindings: config.bindings } : {}),
+  ...(config.env ? { env: Object.fromEntries(Object.entries(config.env).map(([name, environment]) => [name, buildEnvironment(environment)])) } : {}),
 };
 writeFileSync("build/server/wrangler.json", JSON.stringify(manifest, null, 2) + "\n");
 console.log("build/server/wrangler.json written.");
