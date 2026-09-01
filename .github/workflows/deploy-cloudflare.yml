@@ -50,7 +50,22 @@ jobs:
         run: bun install
 
       - name: Build application
-        run: bun run build
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run build 2>&1 | tee build.log
+
+      - name: Report staging build failure details
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          if [[ -f build.log ]]; then
+            while IFS= read -r line; do
+              [[ -n "$line" ]] && echo "::error::$line"
+            done < <(tail -80 build.log)
+          else
+            echo "::error::Build log was not created."
+          fi
 
       - name: Normalize Cloudflare account ID
         shell: bash
