@@ -78,7 +78,27 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          bunx wrangler deploy --config build/server/wrangler.json --env "$TARGET_ENV" 2>&1 | tee deploy.log
+          # Pin both the named Wrangler environment and the Worker name so the
+          # compiled manifest cannot deploy to the base app by accident.
+          bunx wrangler deploy --config build/server/wrangler.json --env staging --name "$WORKER_NAME" 2>&1 | tee deploy.log
+
+      - name: Verify staging Worker serves the new admin build
+        shell: bash
+        env:
+          STAGING_URL: https://cool-masala-staging.luxerion-furnish.workers.dev
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            body="$(curl --fail --silent --show-error --location "$STAGING_URL/admin?deploy=$GITHUB_SHA")"
+            if grep -q "A calm control room for your store" <<<"$body"; then
+              echo "Staging Worker is serving the Shopify admin build for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "Staging Worker has not surfaced the new admin build yet (attempt $attempt/6)."
+            sleep 5
+          done
+          echo "Staging Worker did not serve the expected Shopify admin copy for $GITHUB_SHA."
+          exit 1
 
       - name: Write staging deployment summary
         if: always()

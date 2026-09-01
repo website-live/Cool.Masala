@@ -84,6 +84,10 @@ const buildEnvironment = (environment) => ({
 });
 
 const manifest = {
+  // Preserve the base Wrangler name in the generated config. The staging job
+  // supplies --name explicitly so the compiled bundle cannot drift to another
+  // Worker when --env staging is selected.
+  ...(config.name ? { name: config.name } : {}),
   main: "worker.js",
   no_bundle: true,
   rules: [{ type: "ESModule", globs: ["**/*.js", "**/*.mjs"] }],
