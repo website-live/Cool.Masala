@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @source "./**/*.{ts,tsx}";
@@ -63,6 +63,54 @@
 }
 
 @layer utilities {
+  .admin-shell {
+    --admin-canvas: #fbfbf5;
+    --admin-surface: #ffffff;
+    --admin-ink: #000000;
+    --admin-muted: #71717a;
+    --admin-hairline: #e4e4e7;
+    --admin-aloe: #c1fbd4;
+    --admin-pistachio: #d4f9e0;
+    font-family: "Inter", "Inter Variable", Helvetica, Arial, sans-serif;
+    font-feature-settings: "ss03";
+    background: var(--admin-canvas) !important;
+    color: var(--admin-ink) !important;
+  }
+  .admin-shell input:not([type="checkbox"]),
+  .admin-shell select,
+  .admin-shell textarea {
+    border-color: var(--admin-hairline) !important;
+    border-radius: 8px !important;
+    background: var(--admin-surface) !important;
+    color: var(--admin-ink) !important;
+    font-family: inherit;
+  }
+  .admin-shell section.rounded-xl,
+  .admin-shell div.rounded-xl {
+    border-color: var(--admin-hairline) !important;
+    box-shadow: 0 8px 8px rgba(0,0,0,.1), 0 4px 4px rgba(0,0,0,.1), 0 2px 2px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.06);
+  }
+  .admin-shell button.rounded-lg,
+  .admin-shell a.rounded-lg {
+    border-radius: 9999px !important;
+  }
+  .admin-shell button[class*="bg-[#008060]"],
+  .admin-shell button[class*="bg-[#006e52]"],
+  .admin-shell button[class*="bg-[#fb641b]"] {
+    background: #000000 !important;
+    color: #ffffff !important;
+    border-radius: 9999px !important;
+  }
+  .admin-shell button[class*="bg-[#008060]"]:hover,
+  .admin-shell button[class*="bg-[#006e52]"]:hover,
+  .admin-shell button[class*="bg-[#fb641b]"]:hover {
+    background: #3f3f46 !important;
+  }
+  .admin-shell [class*="bg-[#e3f1ed]"] { background: var(--admin-aloe) !important; color: var(--admin-ink) !important; }
+  .admin-shell [class*="bg-[#eaf4ff]"] { background: var(--admin-pistachio) !important; color: var(--admin-ink) !important; }
+  .admin-shell [class*="bg-[#fff3cd]"] { background: #d4d4d8 !important; color: var(--admin-ink) !important; }
+  .admin-shell [class*="border-[#e1e3e5]"],
+  .admin-shell [class*="border-[#c9cccf]"] { border-color: var(--admin-hairline) !important; }
   .hero-grid {
     background-image: linear-gradient(rgba(255, 246, 232, .04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 246, 232, .04) 1px, transparent 1px);
     background-size: 34px 34px;

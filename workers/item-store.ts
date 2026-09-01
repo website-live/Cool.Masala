@@ -18,6 +18,15 @@ export interface StoreProduct extends Record<string, SqlStorageValue> {
   stock: number;
   active: number;
   updatedAt: string;
+  costPerItem: number;
+  sku: string;
+  barcode: string;
+  trackQuantity: number;
+  lowStockThreshold: number;
+  seoTitle: string;
+  seoDescription: string;
+  slug: string;
+  variants: string;
 }
 
 export type OrderApprovalStatus = "PENDING_ADMIN_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED";
@@ -40,6 +49,9 @@ export interface StoreOrder extends Record<string, SqlStorageValue> {
   paymentStatus: "Paid" | "COD" | "Pending";
   orderStatus: StoreOrderStatus;
   createdAt: string;
+  courier: string;
+  trackingNumber: string;
+  cancelledAt: string;
 }
 
 export interface LowStockItem { productId: number; name: string; stock: number; threshold: number; }
@@ -47,6 +59,31 @@ export interface CreateOrderResult { order: StoreOrder; lowStock: LowStockItem[]
 export interface StoreHealthSummary extends Record<string, SqlStorageValue> { orders: number; pendingApproval: number; rejected: number; cancelled: number; lowStock: number; errorLogs: number; notificationLogs: number; }
 export interface StoreHealthMetrics extends StoreHealthSummary { dbLatencyMs: number; }
 export interface StoreHealthMetrics extends StoreHealthSummary { dbLatencyMs: number; }
+
+export interface StoreCustomer extends Record<string, SqlStorageValue> {
+  email: string;
+  name: string;
+  phone: string;
+  address: string;
+  orderCount: number;
+  totalSpent: number;
+  lastOrderAt: string;
+}
+
+export type DiscountType = "percentage" | "fixed";
+
+export interface StoreDiscount extends Record<string, SqlStorageValue> {
+  id: number;
+  code: string;
+  type: DiscountType;
+  value: number;
+  minimumPurchase: number;
+  usageLimit: number | null;
+  usageCount: number;
+  startsAt: string;
+  endsAt: string;
+  active: number;
+}
 
 export interface StoreExpense extends Record<string, SqlStorageValue> {
   id: number;
@@ -72,9 +109,18 @@ export interface StoreSettings extends Record<string, SqlStorageValue> {
   supportPhone: string;
   lowStockThreshold: number;
   announcement: string;
+  storeEmail: string;
+  currency: string;
+  timezone: string;
+  codEnabled: number;
+  codMinOrder: number;
+  codMaxOrder: number;
 }
 
-const seedProducts: Omit<StoreProduct, "id" | "updatedAt" | "active">[] = [
+type ProductMetadata = "costPerItem" | "sku" | "barcode" | "trackQuantity" | "lowStockThreshold" | "seoTitle" | "seoDescription" | "slug" | "variants";
+type ProductInput = Omit<StoreProduct, "id" | "updatedAt" | "active" | ProductMetadata> & Partial<Pick<StoreProduct, ProductMetadata>>;
+
+const seedProducts: Omit<StoreProduct, "id" | "updatedAt" | "active" | ProductMetadata>[] = [
   { name: "Royal Garam Masala", description: "Aromatic house blend · 100 g", category: "Blended Masala", price: 149, mrp: 179, rating: 4.9, reviews: 128, image: "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=900&q=85", badge: "Bestseller", stock: 48 },
   { name: "Kashmiri Lal Mirch", description: "Vibrant colour, gentle heat · 100 g", category: "Chilli Powders", price: 129, mrp: 159, rating: 4.8, reviews: 94, image: "https://images.unsplash.com/photo-1532336414038-cf19250c5757?auto=format&fit=crop&w=900&q=85", badge: "New arrival", stock: 23 },
   { name: "Green Cardamom", description: "Handpicked whole pods · 50 g", category: "Whole Spices", price: 249, mrp: 299, rating: 5, reviews: 67, image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=900&q=85", badge: null, stock: 8 },
@@ -85,7 +131,7 @@ const seedProducts: Omit<StoreProduct, "id" | "updatedAt" | "active">[] = [
   { name: "Cumin Seeds", description: "Earthy whole jeera · 100 g", category: "Whole Spices", price: 109, mrp: 135, rating: 4.8, reviews: 61, image: "https://images.unsplash.com/photo-1596797038530-2c107229654b?auto=format&fit=crop&w=900&q=85", badge: null, stock: 18 },
 ];
 
-const seedApparel: Omit<StoreProduct, "id" | "updatedAt" | "active">[] = [
+const seedApparel: Omit<StoreProduct, "id" | "updatedAt" | "active" | ProductMetadata>[] = [
   { name: "Masala Mood Graphic Tee", description: "Unisex printed cotton t-shirt · S–XXL", category: "Printed T-Shirts", price: 699, mrp: 999, rating: 4.8, reviews: 0, image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=85", badge: "Free mini masala", stock: 25 },
   { name: "Chilli Pepper Oversized Tee", description: "Street-fit printed t-shirt · S–XXL", category: "Printed T-Shirts", price: 799, mrp: 1199, rating: 4.7, reviews: 0, image: "https://images.unsplash.com/photo-1503341504253-dff4815485f1?auto=format&fit=crop&w=900&q=85", badge: "New arrival", stock: 18 },
   { name: "Tadka Club Black Tee", description: "Premium oversized cotton · S–XXL", category: "Printed T-Shirts", price: 749, mrp: 1099, rating: 4.9, reviews: 0, image: "https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?auto=format&fit=crop&w=900&q=85", badge: "Free masala gift", stock: 14 },
@@ -140,11 +186,39 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("discount")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN discount REAL NOT NULL DEFAULT 0");
     if (!orderColumns.has("gift_included")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN gift_included INTEGER NOT NULL DEFAULT 0");
     if (!orderColumns.has("item_data")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN item_data TEXT NOT NULL DEFAULT '{}'");
+    if (!orderColumns.has("courier")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN courier TEXT NOT NULL DEFAULT ''");
+    if (!orderColumns.has("tracking_number")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''");
+    if (!orderColumns.has("cancelled_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''");
+    const productColumns = new Set(this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(products)").toArray().map((column) => column.name));
+    const productMigrations: [string, string][] = [
+      ["cost_per_item", "ALTER TABLE products ADD COLUMN cost_per_item REAL NOT NULL DEFAULT 0"],
+      ["sku", "ALTER TABLE products ADD COLUMN sku TEXT NOT NULL DEFAULT ''"],
+      ["barcode", "ALTER TABLE products ADD COLUMN barcode TEXT NOT NULL DEFAULT ''"],
+      ["track_quantity", "ALTER TABLE products ADD COLUMN track_quantity INTEGER NOT NULL DEFAULT 1"],
+      ["low_stock_threshold", "ALTER TABLE products ADD COLUMN low_stock_threshold INTEGER NOT NULL DEFAULT 10"],
+      ["seo_title", "ALTER TABLE products ADD COLUMN seo_title TEXT NOT NULL DEFAULT ''"],
+      ["seo_description", "ALTER TABLE products ADD COLUMN seo_description TEXT NOT NULL DEFAULT ''"],
+      ["slug", "ALTER TABLE products ADD COLUMN slug TEXT NOT NULL DEFAULT ''"],
+      ["variants", "ALTER TABLE products ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'"],
+    ];
+    for (const [column, statement] of productMigrations) if (!productColumns.has(column)) this.ctx.storage.sql.exec(statement);
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS order_rate_limits (phone TEXT NOT NULL, ip TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
       CREATE INDEX IF NOT EXISTS idx_order_rate_limits_lookup ON order_rate_limits(phone, ip, created_at);
       CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, message TEXT NOT NULL, context TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE IF NOT EXISTS notification_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, message TEXT NOT NULL, order_id INTEGER, payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE IF NOT EXISTS discounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        value REAL NOT NULL,
+        minimum_purchase REAL NOT NULL DEFAULT 0,
+        usage_limit INTEGER,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
+      );
     `);
     const count = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM products").one().count;
     if (count === 0) {
@@ -158,6 +232,12 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('supportPhone', '')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lowStockThreshold', '10')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('announcement', 'Free delivery on orders over ₹499')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('storeEmail', '')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('currency', 'INR')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('timezone', 'Asia/Kolkata')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codEnabled', '1')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codMinOrder', '0')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codMaxOrder', '100000')");
   }
 
   private insertSeedProduct(product: Omit<StoreProduct, "id" | "updatedAt" | "active">): void {
@@ -168,9 +248,10 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   listProducts(includeInactive = false): StoreProduct[] {
+    const fields = "id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt, cost_per_item AS costPerItem, sku, barcode, track_quantity AS trackQuantity, low_stock_threshold AS lowStockThreshold, seo_title AS seoTitle, seo_description AS seoDescription, slug, variants";
     const query = includeInactive
-      ? "SELECT id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt FROM products ORDER BY id DESC"
-      : "SELECT id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt FROM products WHERE active = 1 ORDER BY id DESC";
+      ? `SELECT ${fields} FROM products ORDER BY id DESC`
+      : `SELECT ${fields} FROM products WHERE active = 1 ORDER BY id DESC`;
     return this.ctx.storage.sql.exec<StoreProduct>(query).toArray();
   }
 
@@ -184,11 +265,19 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   listOrders(): StoreOrder[] {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt FROM orders ORDER BY id DESC").toArray();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders ORDER BY id DESC").toArray();
+  }
+
+  listCustomers(): StoreCustomer[] {
+    return this.ctx.storage.sql.exec<StoreCustomer>("SELECT email, MAX(customer_name) AS name, MAX(phone) AS phone, MAX(address) AS address, COUNT(*) AS orderCount, COALESCE(SUM(total), 0) AS totalSpent, MAX(created_at) AS lastOrderAt FROM orders WHERE email <> '' GROUP BY email ORDER BY lastOrderAt DESC").toArray();
+  }
+
+  listDiscounts(): StoreDiscount[] {
+    return this.ctx.storage.sql.exec<StoreDiscount>("SELECT id, code, type, value, minimum_purchase AS minimumPurchase, usage_limit AS usageLimit, usage_count AS usageCount, starts_at AS startsAt, ends_at AS endsAt, active FROM discounts ORDER BY id DESC").toArray();
   }
 
   listPendingApprovals(): StoreOrder[] {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt FROM orders WHERE order_status = 'PENDING_ADMIN_APPROVAL' ORDER BY id ASC").toArray();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE order_status = 'PENDING_ADMIN_APPROVAL' ORDER BY id ASC").toArray();
   }
 
   listExpenses(): StoreExpense[] {
@@ -198,24 +287,37 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   getSettings(): StoreSettings {
     const rows = this.ctx.storage.sql.exec<{ key: string; value: string }>("SELECT key, value FROM settings").toArray();
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "" };
+    return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "", storeEmail: values.storeEmail ?? "", currency: values.currency ?? "INR", timezone: values.timezone ?? "Asia/Kolkata", codEnabled: Number(values.codEnabled ?? 1), codMinOrder: Number(values.codMinOrder ?? 0), codMaxOrder: Number(values.codMaxOrder ?? 100000) };
   }
 
-  updateProduct(id: number, fields: Partial<Pick<StoreProduct, "name" | "description" | "category" | "price" | "mrp" | "image" | "badge" | "stock" | "active">>): void {
-    const allowed = new Set(["name", "description", "category", "price", "mrp", "image", "badge", "stock", "active"]);
-    const entries = Object.entries(fields).filter(([key, value]) => allowed.has(key) && value !== undefined);
+  updateProduct(id: number, fields: Partial<StoreProduct>): void {
+    const columnMap: Record<string, string> = { name: "name", description: "description", category: "category", price: "price", mrp: "mrp", image: "image", badge: "badge", stock: "stock", active: "active", costPerItem: "cost_per_item", sku: "sku", barcode: "barcode", trackQuantity: "track_quantity", lowStockThreshold: "low_stock_threshold", seoTitle: "seo_title", seoDescription: "seo_description", slug: "slug", variants: "variants" };
+    const entries = Object.entries(fields).filter(([key, value]) => columnMap[key] && value !== undefined);
     if (!entries.length) return;
-    const assignments = entries.map(([key]) => `${key === "updatedAt" ? "updated_at" : key} = ?`).join(", ");
+    const assignments = entries.map(([key]) => `${columnMap[key]} = ?`).join(", ");
     const values = entries.map(([, value]) => value === null ? null : value);
     this.ctx.storage.sql.exec(`UPDATE products SET ${assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, ...values, id);
   }
 
-  createProduct(product: Omit<StoreProduct, "id" | "updatedAt" | "rating" | "reviews" | "active">): StoreProduct {
+  createProduct(product: ProductInput): StoreProduct {
     return this.ctx.storage.sql.exec<StoreProduct>(
-      "INSERT INTO products (name, description, category, price, mrp, rating, reviews, image, badge, stock) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?) RETURNING id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt",
-      product.name, product.description, product.category, product.price, product.mrp, product.image, product.badge, product.stock,
+      "INSERT INTO products (name, description, category, price, mrp, rating, reviews, image, badge, stock, cost_per_item, sku, barcode, track_quantity, low_stock_threshold, seo_title, seo_description, slug, variants) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt, cost_per_item AS costPerItem, sku, barcode, track_quantity AS trackQuantity, low_stock_threshold AS lowStockThreshold, seo_title AS seoTitle, seo_description AS seoDescription, slug, variants",
+      product.name, product.description, product.category, product.price, product.mrp, product.image, product.badge, product.stock, product.costPerItem ?? 0, product.sku ?? "", product.barcode ?? "", product.trackQuantity ?? 1, product.lowStockThreshold ?? 10, product.seoTitle ?? "", product.seoDescription ?? "", product.slug ?? "", product.variants ?? "[]",
     ).one();
   }
+
+  createDiscount(discount: Omit<StoreDiscount, "id" | "usageCount">): StoreDiscount {
+    return this.ctx.storage.sql.exec<StoreDiscount>("INSERT INTO discounts (code, type, value, minimum_purchase, usage_limit, starts_at, ends_at, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, code, type, value, minimum_purchase AS minimumPurchase, usage_limit AS usageLimit, usage_count AS usageCount, starts_at AS startsAt, ends_at AS endsAt, active", String(discount.code ?? "").toUpperCase(), discount.type, discount.value, discount.minimumPurchase, discount.usageLimit, discount.startsAt, discount.endsAt, discount.active).one();
+  }
+
+  updateDiscount(id: number, fields: Partial<Omit<StoreDiscount, "id" | "usageCount">>): void {
+    const map: Record<string, string> = { code: "code", type: "type", value: "value", minimumPurchase: "minimum_purchase", usageLimit: "usage_limit", startsAt: "starts_at", endsAt: "ends_at", active: "active" };
+    const entries = Object.entries(fields).filter(([key, value]) => map[key] && value !== undefined);
+    if (!entries.length) return;
+    this.ctx.storage.sql.exec(`UPDATE discounts SET ${entries.map(([key]) => `${map[key]} = ?`).join(", ")} WHERE id = ?`, ...entries.map(([, value]) => value), id);
+  }
+
+  deleteDiscount(id: number): void { this.ctx.storage.sql.exec("DELETE FROM discounts WHERE id = ?", id); }
 
   createOrder(input: { customerName: string; email: string; phone: string; address: string; ipAddress: string; items: { productId: number; quantity: number }[] }): CreateOrderResult {
     if (!input.items.length) throw new Error("Cart is empty");
@@ -260,6 +362,22 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     this.ctx.storage.sql.exec("UPDATE orders SET order_status = ? WHERE id = ?", orderStatus, id);
   }
 
+  updateFulfillment(id: number, orderStatus: OrderFulfilmentStatus, courier = "", trackingNumber = ""): void {
+    this.updateOrderStatus(id, orderStatus);
+    this.ctx.storage.sql.exec("UPDATE orders SET courier = ?, tracking_number = ? WHERE id = ?", courier.slice(0, 100), trackingNumber.slice(0, 100), id);
+  }
+
+  cancelOrder(id: number): void {
+    this.ctx.storage.transactionSync(() => {
+      const existing = this.getOrderForUpdate(id);
+      if (["CANCELLED", "REJECTED", "Delivered"].includes(existing.orderStatus)) throw new Error(`Order ${id} cannot be cancelled from ${existing.orderStatus}`);
+      const lines = this.parseItemData(existing.itemData, id);
+      for (const line of lines) this.ctx.storage.sql.exec("UPDATE products SET stock = stock + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
+      this.ctx.storage.sql.exec("UPDATE orders SET order_status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+      this.logNotification("ORDER_CANCELLED", "Order cancelled by administrator", id, {});
+    });
+  }
+
   approveOrder(id: number): StoreOrder {
     return this.transitionApproval(id, "APPROVED");
   }
@@ -284,7 +402,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   private getOrderForUpdate(id: number): StoreOrder {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt FROM orders WHERE id = ?", id).one();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE id = ?", id).one();
   }
 
   private parseItemData(itemData: string, orderId: number): { productId: number; quantity: number }[] {
@@ -321,7 +439,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return { ...summary, dbLatencyMs: Math.round((performance.now() - started) * 100) / 100 };
   }
 
-  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement">>): void {
+  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder">>): void {
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, String(value));
     }
