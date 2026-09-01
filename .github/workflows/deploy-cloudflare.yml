@@ -60,9 +60,9 @@ jobs:
           test -n "$ADMIN_ACCESS_KEY" || (echo "Missing STAGING_ADMIN_ACCESS_KEY" && exit 1)
           test -n "$ADMIN_TOTP_SECRET" || (echo "Missing STAGING_ADMIN_TOTP_SECRET" && exit 1)
           test -n "$NOTIFICATION_FROM_EMAIL" || (echo "Missing STAGING_NOTIFICATION_FROM_EMAIL" && exit 1)
-          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config build/server/wrangler.json --env "$TARGET_ENV"
-          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config build/server/wrangler.json --env "$TARGET_ENV"
-          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config build/server/wrangler.json --env "$TARGET_ENV"
+          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config build/server/wrangler.json --name "$WORKER_NAME"
+          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config build/server/wrangler.json --name "$WORKER_NAME"
+          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config build/server/wrangler.json --name "$WORKER_NAME"
 
       - name: Deploy staging Worker and isolated Durable Object
         shell: bash
@@ -121,9 +121,9 @@ jobs:
           test -n "$ADMIN_ACCESS_KEY" || (echo "Missing PROD_ADMIN_ACCESS_KEY" && exit 1)
           test -n "$ADMIN_TOTP_SECRET" || (echo "Missing PROD_ADMIN_TOTP_SECRET" && exit 1)
           test -n "$NOTIFICATION_FROM_EMAIL" || (echo "Missing PROD_NOTIFICATION_FROM_EMAIL" && exit 1)
-          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config build/server/wrangler.json --env "$TARGET_ENV"
-          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config build/server/wrangler.json --env "$TARGET_ENV"
-          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config build/server/wrangler.json --env "$TARGET_ENV"
+          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config build/server/wrangler.json --name "$WORKER_NAME"
+          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config build/server/wrangler.json --name "$WORKER_NAME"
+          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config build/server/wrangler.json --name "$WORKER_NAME"
 
       - name: Deploy production Worker and isolated Durable Object
         shell: bash
