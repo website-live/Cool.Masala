@@ -52,6 +52,16 @@ jobs:
       - name: Build application
         run: bun run build
 
+      - name: Normalize Cloudflare account ID
+        shell: bash
+        run: |
+          ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          if [[ ! "$ACCOUNT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "CLOUDFLARE_ACCOUNT_ID contains invalid characters after whitespace normalization."
+            exit 1
+          fi
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
       - name: Configure encrypted staging Worker secrets
         shell: bash
         run: |
@@ -60,9 +70,9 @@ jobs:
           test -n "$ADMIN_ACCESS_KEY" || (echo "Missing STAGING_ADMIN_ACCESS_KEY" && exit 1)
           test -n "$ADMIN_TOTP_SECRET" || (echo "Missing STAGING_ADMIN_TOTP_SECRET" && exit 1)
           test -n "$NOTIFICATION_FROM_EMAIL" || (echo "Missing STAGING_NOTIFICATION_FROM_EMAIL" && exit 1)
-          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --name "$WORKER_NAME"
-          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --name "$WORKER_NAME"
-          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --name "$WORKER_NAME"
+          printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config wrangler.jsonc --env "$TARGET_ENV"
+          printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config wrangler.jsonc --env "$TARGET_ENV"
+          printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config wrangler.jsonc --env "$TARGET_ENV"
 
       - name: Deploy staging Worker and isolated Durable Object
         shell: bash
@@ -80,7 +90,7 @@ jobs:
             echo "## Cool Masala staging deployment"
             echo "- Environment: **staging**"
             echo "- Worker: **$WORKER_NAME**"
-            echo "- Deployment ID: \\`${DEPLOYMENT_ID:-not emitted by Wrangler}\`"
+            echo "- Deployment ID: ${DEPLOYMENT_ID:-not emitted by Wrangler}"
             echo "- Deployment URL: ${DEPLOYMENT_URL:-not emitted by Wrangler output}"
             echo "- Source: ${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -113,6 +123,16 @@ jobs:
       - name: Build application
         run: bun run build
 
+      - name: Normalize Cloudflare account ID
+        shell: bash
+        run: |
+          ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          if [[ ! "$ACCOUNT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "CLOUDFLARE_ACCOUNT_ID contains invalid characters after whitespace normalization."
+            exit 1
+          fi
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
       - name: Validate production Cloudflare and admin inputs
         shell: bash
         run: |
@@ -124,16 +144,16 @@ jobs:
 
       - name: Sync production ADMIN_ACCESS_KEY
         shell: bash
-        run: printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --name "$WORKER_NAME"
+        run: printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config wrangler.jsonc --env "$TARGET_ENV"
 
       - name: Sync production ADMIN_TOTP_SECRET
         shell: bash
-        run: printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --name "$WORKER_NAME"
+        run: printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config wrangler.jsonc --env "$TARGET_ENV"
 
       - name: Sync optional production notification sender
         if: ${{ env.NOTIFICATION_FROM_EMAIL != '' }}
         shell: bash
-        run: printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --name "$WORKER_NAME"
+        run: printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config wrangler.jsonc --env "$TARGET_ENV"
 
       - name: Deploy production Worker and isolated Durable Object
         shell: bash
@@ -151,7 +171,7 @@ jobs:
             echo "## Cool Masala production deployment"
             echo "- Environment: **production**"
             echo "- Worker: **$WORKER_NAME**"
-            echo "- Deployment ID: \\`${DEPLOYMENT_ID:-not emitted by Wrangler}\`"
+            echo "- Deployment ID: ${DEPLOYMENT_ID:-not emitted by Wrangler}"
             echo "- Deployment URL: ${DEPLOYMENT_URL:-not emitted by Wrangler output}"
             echo "- Source: ${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
