@@ -156,9 +156,14 @@
     color: var(--store-ink) !important;
   }
   .storefront-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000 !important;
     background: #000000 !important;
     box-shadow: 0 1px 0 rgba(255,255,255,.12), 0 6px 18px rgba(0,0,0,.14) !important;
   }
+  .storefront-category-nav { scrollbar-width: none; }
+  .storefront-category-nav::-webkit-scrollbar { display: none; }
   .storefront input:not([type="checkbox"]),
   .storefront select,
   .checkout-shell input:not([type="checkbox"]),
