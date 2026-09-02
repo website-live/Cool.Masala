@@ -151,7 +151,7 @@
     --store-hairline: #e4e4e7;
     --store-aloe: #c1fbd4;
     --store-pistachio: #d4f9e0;
-    overflow-x: hidden;
+    overflow-x: clip;
     background: var(--store-canvas) !important;
     color: var(--store-ink) !important;
   }
