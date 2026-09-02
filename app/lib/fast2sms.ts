@@ -20,10 +20,10 @@ export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: stri
   const message = `Your OTP for Cool Masala login is ${otp}. ${origin} #${otp}`;
   const endpoint = env.FAST2SMS_OTP_ID ? "https://www.fast2sms.com/dev/otp/send" : "https://www.fast2sms.com/dev/bulkV2";
   const body = env.FAST2SMS_OTP_ID
-    ? { mobile: phoneNumber, otp_id: env.FAST2SMS_OTP_ID, otp, otp_length: 6 }
+    ? { mobile: phoneNumber, otp_id: env.FAST2SMS_OTP_ID, otp, otp_length: 6, otp_expiry: 5 }
     : env.FAST2SMS_SENDER_ID
       ? { route: "q", language: "english", flash: 0, numbers: phoneNumber, message, sender_id: env.FAST2SMS_SENDER_ID }
-      : { route: "otp", variables_values: otp, numbers: phoneNumber };
+      : { route: "otp", variables_values: otp, flash: 0, numbers: phoneNumber };
   const consoleFallback = (reason: string): "sms" | "console" => {
     if (env.APP_ENV === "staging" || env.APP_ENV === "development") {
       console.warn(JSON.stringify({ code: "OTP_CONSOLE_FALLBACK", phone, otp, reason }));
