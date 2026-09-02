@@ -18,6 +18,9 @@ interface Env {
   RESEND_CONNECTION?: string;
   ADMIN_NOTIFICATION_EMAIL?: string;
   NOTIFICATION_FROM_EMAIL?: string;
+  FAST2SMS_API_KEY?: string;
+  FAST2SMS_OTP_ID?: string;
+  FAST2SMS_SENDER_ID?: string;
 }
 
 declare module "react-router" {
