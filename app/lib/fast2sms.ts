@@ -24,11 +24,23 @@ export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: stri
     : env.FAST2SMS_SENDER_ID
       ? { route: "q", language: "english", flash: 0, numbers: phoneNumber, message, sender_id: env.FAST2SMS_SENDER_ID }
       : { route: "otp", variables_values: otp, numbers: phoneNumber };
-  const response = await fetch(endpoint, { method: "POST", headers: { authorization: apiKey, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const consoleFallback = (reason: string): "sms" | "console" => {
+    if (env.APP_ENV === "staging" || env.APP_ENV === "development") {
+      console.warn(JSON.stringify({ code: "OTP_CONSOLE_FALLBACK", phone, otp, reason }));
+      return "console";
+    }
+    throw new Error(reason);
+  };
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", headers: { authorization: apiKey, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    return consoleFallback("Fast2SMS could not be reached.");
+  }
   const responseText = await response.text();
-  if (!response.ok) throw new Error(`Fast2SMS returned HTTP ${response.status}.`);
+  if (!response.ok) return consoleFallback(`Fast2SMS returned HTTP ${response.status}.`);
   let payload: { return?: boolean; message?: string } = {};
   try { payload = JSON.parse(responseText) as typeof payload; } catch {}
-  if (payload.return === false) throw new Error(payload.message || "Fast2SMS rejected the OTP request.");
+  if (payload.return === false) return consoleFallback(payload.message || "Fast2SMS rejected the OTP request.");
   return "sms";
 }
