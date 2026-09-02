@@ -118,6 +118,7 @@
   .admin-shell table tbody tr:hover { background: #fafaf7; }
   .admin-shell button.rounded-lg,
   .admin-shell a.rounded-lg { border-radius: 9999px !important; }
+
   .admin-shell button[class*="bg-[#008060]"],
   .admin-shell button[class*="bg-[#006e52]"],
   .admin-shell button[class*="bg-[#fb641b]"] {
@@ -218,6 +219,10 @@
   .checkout-shell [class*="bg-[#388e3c]"] { background: #000000 !important; }
   .checkout-shell [class*="text-[#388e3c]"],
   .checkout-shell [class*="text-[#2e7d32]"] { color: #000000 !important; }
+  .customer-login-backdrop { backdrop-filter: blur(8px); }
+  .customer-login-card { border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.92); backdrop-filter: blur(12px); }
+  .customer-login-drawer { animation: customer-login-slide-in .24s ease-out both; }
+  @keyframes customer-login-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 
   .hero-grid {
     background-image: linear-gradient(rgba(255, 246, 232, .04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 246, 232, .04) 1px, transparent 1px);
