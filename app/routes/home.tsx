@@ -42,6 +42,36 @@ type Product = {
 
 type CartLine = { product: Product; quantity: number };
 
+type StoredCartLine = {
+  productId?: unknown;
+  quantity?: unknown;
+  product?: Partial<Product>;
+  id?: unknown;
+  name?: unknown;
+  category?: unknown;
+  description?: unknown;
+  price?: unknown;
+  mrp?: unknown;
+  rating?: unknown;
+  reviews?: unknown;
+  image?: unknown;
+  badge?: unknown;
+};
+
+function normalizeStoredCart(raw: unknown, products: Product[]): CartLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const value = entry as StoredCartLine;
+    const nestedProduct = value.product && typeof value.product === "object" ? value.product : value;
+    const productId = Number(value.productId ?? nestedProduct.id);
+    const quantity = Number(value.quantity);
+    if (!Number.isInteger(productId) || !Number.isInteger(quantity) || quantity < 1) return [];
+    const product = products.find((candidate) => candidate.id === productId);
+    return product ? [{ product, quantity: Math.min(product.stock ?? Number.MAX_SAFE_INTEGER, quantity) }] : [];
+  }).filter((line) => line.quantity > 0);
+}
+
 const categories: { name: Category; icon: string }[] = [
   { name: "All Products", icon: "✦" },
   { name: "Masalas", icon: "♨" },
@@ -183,13 +213,13 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("cool-masala-cart") ?? "[]") as CartLine[];
-      if (Array.isArray(saved)) setCart(saved.filter((line) => line.quantity > 0));
+      const saved = JSON.parse(localStorage.getItem("cool-masala-cart") ?? "[]") as unknown;
+      setCart(normalizeStoredCart(saved, products));
     } catch {
       setCart([]);
     }
     setCartHydrated(true);
-  }, []);
+  }, [products]);
 
   useEffect(() => {
     if (cartHydrated) {
