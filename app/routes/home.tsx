@@ -294,7 +294,7 @@ export default function Home() {
         {mobileNavOpen && <div className="border-t border-white/20 px-5 py-4 lg:hidden"><div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold"><a href="#categories" onClick={() => setMobileNavOpen(false)}>Categories</a><a href="#products" onClick={() => setMobileNavOpen(false)}>Shop products</a><a href="#why" onClick={() => setMobileNavOpen(false)}>Why Cool Masala</a></div></div>}
         <nav id="categories" aria-label="Product categories" className="storefront-category-nav border-t border-white/15 bg-black">
           <div className="mx-auto flex max-w-[1280px] justify-start gap-1 overflow-x-auto px-3 py-2 sm:gap-2 sm:px-6 md:justify-center">
-            {categories.map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(category.name)} className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold transition-colors sm:px-4 ${activeCategory === category.name ? "bg-[#c1fbd4] text-black" : "text-white/85 hover:bg-white/10 hover:text-white"}`}>{category.name}</button>)}
+            {categories.map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(category.name)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-semibold transition-colors sm:px-4 ${activeCategory === category.name ? "bg-[#c1fbd4] text-black" : "text-white/85 hover:bg-white/10 hover:text-white"}`}><span aria-hidden="true" className={`grid size-6 place-items-center rounded-full text-sm leading-none ${activeCategory === category.name ? "bg-black/10" : "bg-white/10"}`}>{category.icon}</span><span>{category.name}</span></button>)}
           </div>
         </nav>
       </header>
