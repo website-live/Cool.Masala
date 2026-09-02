@@ -536,18 +536,21 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
 
   verifyCustomerOtp(phone: string, codeHash: string): CustomerUser {
     let user: CustomerUser | null = null;
+    let failure = "";
     this.ctx.storage.transactionSync(() => {
       const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
-      if (!request || new Date(request.expiresAt).getTime() < Date.now()) throw new Error("This OTP has expired. Request a new one.");
-      if (request.attempts >= 5) throw new Error("Too many incorrect OTP attempts. Request a new code.");
+      if (!request || new Date(request.expiresAt).getTime() < Date.now()) { failure = "This OTP has expired. Request a new one."; return; }
+      if (request.attempts >= 5) { failure = "Too many incorrect OTP attempts. Request a new code."; return; }
       if (request.codeHash !== codeHash) {
         this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET attempts = attempts + 1 WHERE id = ?", request.id);
-        throw new Error("The OTP is incorrect.");
+        failure = "The OTP is incorrect.";
+        return;
       }
       this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET used_at = CURRENT_TIMESTAMP WHERE id = ?", request.id);
       this.ctx.storage.sql.exec("INSERT INTO customer_users (phone, is_verified) VALUES (?, 1) ON CONFLICT(phone) DO UPDATE SET is_verified = 1", phone);
       user = this.ctx.storage.sql.exec<CustomerUser>("SELECT id, phone, created_at AS createdAt, is_verified AS isVerified, saved_addresses AS savedAddresses FROM customer_users WHERE phone = ?", phone).one();
     });
+    if (failure) throw new Error(failure);
     if (!user) throw new Error("Customer verification could not be completed.");
     return user;
   }
