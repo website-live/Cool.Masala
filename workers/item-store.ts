@@ -118,7 +118,6 @@ export interface StoreSettings {
   currency: string;
   timezone: string;
   codEnabled: number;
-
   codMinOrder: number;
   codMaxOrder: number;
   upiVpa: string;
@@ -179,6 +178,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         label TEXT NOT NULL,
         amount REAL NOT NULL,
+
         category TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -239,7 +239,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
         saved_addresses TEXT NOT NULL DEFAULT '[]'
       );
       CREATE TABLE IF NOT EXISTS customer_otp_requests (
-
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         phone TEXT NOT NULL,
         code_hash TEXT NOT NULL,
@@ -481,7 +480,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   bulkApproveOrders(ids: number[]): StoreOrder[] {
-
     if (!ids.length) return [];
     return ids.map((id) => this.approveOrder(id));
   }
@@ -527,11 +525,11 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   requestCustomerOtp(phone: string, codeHash: string, expiresAt: string): void {
     this.ctx.storage.transactionSync(() => {
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM customer_otp_requests WHERE phone = ? AND created_at >= ?", phone, cutoff).one().count;
+      const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM customer_otp_requests WHERE phone = ? AND julianday(created_at) >= julianday(?)", phone, cutoff).one().count;
       if (recent >= 3) throw new Error("Too many OTP requests. Please try again in 10 minutes.");
       const latest = this.ctx.storage.sql.exec<{ createdAt: string }>("SELECT created_at AS createdAt FROM customer_otp_requests WHERE phone = ? ORDER BY id DESC LIMIT 1", phone).toArray()[0];
       if (latest && Date.now() - new Date(latest.createdAt).getTime() < 30 * 1000) throw new Error("Please wait 30 seconds before requesting another OTP.");
-      this.ctx.storage.sql.exec("DELETE FROM customer_otp_requests WHERE expires_at < ? OR created_at < ?", new Date().toISOString(), cutoff);
+      this.ctx.storage.sql.exec("DELETE FROM customer_otp_requests WHERE julianday(expires_at) < julianday(?) OR julianday(created_at) < julianday(?)", new Date().toISOString(), cutoff);
       this.ctx.storage.sql.exec("INSERT INTO customer_otp_requests (phone, code_hash, expires_at) VALUES (?, ?, ?)", phone, codeHash, expiresAt);
     });
   }
@@ -542,6 +540,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     this.ctx.storage.transactionSync(() => {
       const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
       if (!request || new Date(request.expiresAt).getTime() < Date.now()) { failure = "This OTP has expired. Request a new one."; return; }
+
       if (request.attempts >= 5) { failure = "Too many incorrect OTP attempts. Request a new code."; return; }
       if (request.codeHash !== codeHash) {
         this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET attempts = attempts + 1 WHERE id = ?", request.id);
