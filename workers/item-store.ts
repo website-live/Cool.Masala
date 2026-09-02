@@ -529,6 +529,8 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM customer_otp_requests WHERE phone = ? AND created_at >= ?", phone, cutoff).one().count;
       if (recent >= 3) throw new Error("Too many OTP requests. Please try again in 10 minutes.");
+      const latest = this.ctx.storage.sql.exec<{ createdAt: string }>("SELECT created_at AS createdAt FROM customer_otp_requests WHERE phone = ? ORDER BY id DESC LIMIT 1", phone).toArray()[0];
+      if (latest && Date.now() - new Date(latest.createdAt).getTime() < 30 * 1000) throw new Error("Please wait 30 seconds before requesting another OTP.");
       this.ctx.storage.sql.exec("DELETE FROM customer_otp_requests WHERE expires_at < ? OR created_at < ?", new Date().toISOString(), cutoff);
       this.ctx.storage.sql.exec("INSERT INTO customer_otp_requests (phone, code_hash, expires_at) VALUES (?, ?, ?)", phone, codeHash, expiresAt);
     });
