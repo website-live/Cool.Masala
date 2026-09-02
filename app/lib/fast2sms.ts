@@ -23,7 +23,7 @@ function responseMessage(responseText: string): string | null {
   }
 }
 
-export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: string, request: Request): Promise<Fast2SmsResult> {
+export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: string): Promise<Fast2SmsResult> {
   const apiKey = env.FAST2SMS_API_KEY?.trim();
   if (!apiKey) {
     if (env.APP_ENV === "staging") {
@@ -35,14 +35,9 @@ export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: stri
   }
 
   const phoneNumber = phone.replace(/^\+91/, "");
-  const origin = new URL(request.url).origin;
-  const message = `Your OTP for Cool Masala login is ${otp}. ${origin} #${otp}`;
-  const endpoint = env.FAST2SMS_OTP_ID ? "https://www.fast2sms.com/dev/otp/send" : "https://www.fast2sms.com/dev/bulkV2";
-  const body = env.FAST2SMS_OTP_ID
-    ? { mobile: phoneNumber, otp_id: env.FAST2SMS_OTP_ID, otp, otp_length: 6, otp_expiry: 5 }
-    : env.FAST2SMS_SENDER_ID
-      ? { route: "q", language: "english", flash: 0, numbers: phoneNumber, message, sender_id: env.FAST2SMS_SENDER_ID }
-      : { route: "otp", variables_values: otp, flash: 0, numbers: phoneNumber };
+  const message = `Your OTP for Cool Masala login is ${otp}. @cool-masala-staging.luxerion-furnish.workers.dev #${otp}`;
+  const endpoint = "https://www.fast2sms.com/dev/bulkV2";
+  const body = { route: "q", message, language: "english", flash: 0, numbers: phoneNumber };
   const consoleFallback = (reason: string, providerStatus: number | null, providerMessage: string | null): Fast2SmsResult => {
     if (env.APP_ENV === "staging" || env.APP_ENV === "development") {
       console.warn(JSON.stringify({ code: "OTP_CONSOLE_FALLBACK", phone, otp, configured: true, endpoint, providerStatus, providerMessage, reason }));
