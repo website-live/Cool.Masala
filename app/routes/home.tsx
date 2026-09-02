@@ -276,7 +276,7 @@ export default function Home() {
 
   return (
     <div className="storefront min-h-svh bg-[#fbfbf5] text-black">
-      <header className="storefront-header sticky top-0 z-30 bg-black text-white shadow-md">
+      <header className="storefront-header sticky top-0 z-[1000] bg-black text-white shadow-md">
         <div className="mx-auto flex h-[64px] max-w-[1280px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <a href="#top" className="shrink-0 leading-none" aria-label={`${settings.storeName} home`}>
             <span className="font-display text-[22px] font-bold italic tracking-[-0.08em]">cool<span className="text-[#ffe500]">.</span>masala</span>
@@ -292,14 +292,14 @@ export default function Home() {
           <Button onClick={() => setMobileNavOpen(!mobileNavOpen)} variant="ghost" className="size-10 shrink-0 rounded-sm p-0 text-white hover:bg-white/10 lg:hidden" aria-label="Toggle menu">{mobileNavOpen ? <X className="size-5" /> : <Menu className="size-5" />}</Button>
         </div>
         {mobileNavOpen && <div className="border-t border-white/20 px-5 py-4 lg:hidden"><div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold"><a href="#categories" onClick={() => setMobileNavOpen(false)}>Categories</a><a href="#products" onClick={() => setMobileNavOpen(false)}>Shop products</a><a href="#why" onClick={() => setMobileNavOpen(false)}>Why Cool Masala</a></div></div>}
+        <nav id="categories" aria-label="Product categories" className="storefront-category-nav border-t border-white/15 bg-black">
+          <div className="mx-auto flex max-w-[1280px] justify-start gap-1 overflow-x-auto px-3 py-2 sm:gap-2 sm:px-6 md:justify-center">
+            {categories.map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(category.name)} className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold transition-colors sm:px-4 ${activeCategory === category.name ? "bg-[#c1fbd4] text-black" : "text-white/85 hover:bg-white/10 hover:text-white"}`}>{category.name}</button>)}
+          </div>
+        </nav>
       </header>
 
       <main id="top">
-        <section id="categories" className="border-b border-[#e0e0e0] bg-white shadow-sm">
-          <div className="mx-auto flex max-w-[1280px] justify-between gap-3 overflow-x-auto px-4 py-4 sm:px-6 md:justify-center md:gap-8 lg:gap-12">
-            {categories.map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(category.name)} className={`group flex min-w-[78px] flex-col items-center gap-2 text-center text-xs font-semibold transition-colors ${activeCategory === category.name ? "text-[#2874f0]" : "text-[#212121] hover:text-[#2874f0]"}`}><span className={`grid size-12 place-items-center rounded-full border text-2xl transition-all ${activeCategory === category.name ? "border-[#2874f0] bg-[#e8f0fe]" : "border-[#e0e0e0] bg-[#fafafa] group-hover:border-[#2874f0]"}`}>{category.icon}</span><span className="whitespace-nowrap">{category.name}</span></button>)}
-          </div>
-        </section>
 
         <section className="mx-auto max-w-[1280px] px-3 py-3 sm:px-6 sm:py-5">
           <div className="relative flex min-h-[250px] items-center overflow-hidden rounded-lg bg-black px-6 py-10 text-white shadow-sm sm:min-h-[300px] sm:px-12 lg:min-h-[340px] lg:px-20">
