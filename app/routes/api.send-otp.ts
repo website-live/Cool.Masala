@@ -26,7 +26,9 @@ export async function action({ request, context }: Route.ActionArgs) {
     } : undefined;
     return Response.json({ ok: true, delivery: result.delivery, expiresIn: 300, resendAfter: 30, ...(diagnostic ? { diagnostic } : {}) });
   } catch (error) {
-    return Response.json({ ok: false, message: error instanceof Error ? error.message : "OTP could not be sent. Please try again." }, { status: 502 });
+    const message = error instanceof Error ? error.message : "OTP could not be sent. Please try again.";
+    const rateLimited = message.includes("Too many OTP requests") || message.includes("Please wait 30 seconds");
+    return Response.json({ ok: false, message }, { status: rateLimited ? 429 : 502 });
   }
 }
 
