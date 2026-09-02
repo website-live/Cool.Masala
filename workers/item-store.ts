@@ -63,6 +63,8 @@ export interface StoreHealthSummary extends Record<string, SqlStorageValue> { or
 export interface StoreHealthMetrics extends StoreHealthSummary { dbLatencyMs: number; }
 export interface StoreHealthMetrics extends StoreHealthSummary { dbLatencyMs: number; }
 
+export interface CustomerUser extends Record<string, SqlStorageValue> { id: number; phone: string; createdAt: string; isVerified: number; savedAddresses: string }
+
 export interface StoreCustomer extends Record<string, SqlStorageValue> {
   email: string;
   name: string;
@@ -116,9 +118,9 @@ export interface StoreSettings {
   currency: string;
   timezone: string;
   codEnabled: number;
+
   codMinOrder: number;
   codMaxOrder: number;
-
   upiVpa: string;
   googlePlacesApiKey: string;
   blockedPincodes: string[];
@@ -229,6 +231,31 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
         ends_at TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1
       );
+      CREATE TABLE IF NOT EXISTS customer_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        is_verified INTEGER NOT NULL DEFAULT 0,
+        saved_addresses TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE TABLE IF NOT EXISTS customer_otp_requests (
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        used_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_customer_otp_phone_created ON customer_otp_requests(phone, created_at);
+      CREATE TABLE IF NOT EXISTS customer_sessions (
+        session_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_customer_sessions_expiry ON customer_sessions(expires_at);
     `);
     const count = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM products").one().count;
     if (count === 0) {
@@ -239,7 +266,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       for (const product of seedApparel) this.insertSeedProduct(product);
     }
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('storeName', 'Cool Masala')");
-
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('supportPhone', '')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lowStockThreshold', '10')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('announcement', 'Free delivery on orders over ₹499')");
@@ -334,6 +360,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     const map: Record<string, string> = { code: "code", type: "type", value: "value", minimumPurchase: "minimum_purchase", usageLimit: "usage_limit", startsAt: "starts_at", endsAt: "ends_at", active: "active" };
     const entries = Object.entries(fields).filter(([key, value]) => map[key] && value !== undefined);
     if (!entries.length) return;
+
     this.ctx.storage.sql.exec(`UPDATE discounts SET ${entries.map(([key]) => `${map[key]} = ?`).join(", ")} WHERE id = ?`, ...entries.map(([, value]) => value), id);
   }
 
@@ -360,7 +387,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
       const discount = input.paymentMethod === "UPI" ? Math.round(subtotal * 0.1 * 100) / 100 : 0;
       const baseShipping = subtotal >= 499 ? 0 : 49;
-
       const codFee = input.paymentMethod === "COD" ? 50 : 0;
       const shippingFee = baseShipping + codFee;
       const total = subtotal - discount + shippingFee;
@@ -455,6 +481,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   bulkApproveOrders(ids: number[]): StoreOrder[] {
+
     if (!ids.length) return [];
     return ids.map((id) => this.approveOrder(id));
   }
@@ -482,7 +509,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     this.ctx.storage.sql.exec("INSERT INTO error_logs (code, message, context) VALUES (?, ?, ?)", code, message, JSON.stringify(context));
   }
 
-
   logNotification(type: string, message: string, orderId: number | null = null, payload: Record<string, unknown> = {}): void {
     this.ctx.storage.sql.exec("INSERT INTO notification_logs (type, message, order_id, payload) VALUES (?, ?, ?, ?)", type, message, orderId, JSON.stringify(payload));
   }
@@ -496,6 +522,44 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     const started = performance.now();
     const summary = this.getHealthSummary();
     return { ...summary, dbLatencyMs: Math.round((performance.now() - started) * 100) / 100 };
+  }
+
+  requestCustomerOtp(phone: string, codeHash: string, expiresAt: string): void {
+    this.ctx.storage.transactionSync(() => {
+      const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM customer_otp_requests WHERE phone = ? AND created_at >= ?", phone, cutoff).one().count;
+      if (recent >= 3) throw new Error("Too many OTP requests. Please try again in 10 minutes.");
+      this.ctx.storage.sql.exec("DELETE FROM customer_otp_requests WHERE expires_at < ? OR created_at < ?", new Date().toISOString(), cutoff);
+      this.ctx.storage.sql.exec("INSERT INTO customer_otp_requests (phone, code_hash, expires_at) VALUES (?, ?, ?)", phone, codeHash, expiresAt);
+    });
+  }
+
+  verifyCustomerOtp(phone: string, codeHash: string): CustomerUser {
+    let user: CustomerUser | null = null;
+    this.ctx.storage.transactionSync(() => {
+      const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
+      if (!request || new Date(request.expiresAt).getTime() < Date.now()) throw new Error("This OTP has expired. Request a new one.");
+      if (request.attempts >= 5) throw new Error("Too many incorrect OTP attempts. Request a new code.");
+      if (request.codeHash !== codeHash) {
+        this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET attempts = attempts + 1 WHERE id = ?", request.id);
+        throw new Error("The OTP is incorrect.");
+      }
+      this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET used_at = CURRENT_TIMESTAMP WHERE id = ?", request.id);
+      this.ctx.storage.sql.exec("INSERT INTO customer_users (phone, is_verified) VALUES (?, 1) ON CONFLICT(phone) DO UPDATE SET is_verified = 1", phone);
+      user = this.ctx.storage.sql.exec<CustomerUser>("SELECT id, phone, created_at AS createdAt, is_verified AS isVerified, saved_addresses AS savedAddresses FROM customer_users WHERE phone = ?", phone).one();
+    });
+    if (!user) throw new Error("Customer verification could not be completed.");
+    return user;
+  }
+
+  createCustomerSession(userId: number, sessionHash: string, expiresAt: string): void {
+    this.ctx.storage.sql.exec("DELETE FROM customer_sessions WHERE expires_at < ?", new Date().toISOString());
+    this.ctx.storage.sql.exec("INSERT INTO customer_sessions (session_hash, user_id, expires_at) VALUES (?, ?, ?)", sessionHash, userId, expiresAt);
+  }
+
+  getCustomerBySession(sessionHash: string): CustomerUser | null {
+    const row = this.ctx.storage.sql.exec<CustomerUser>("SELECT customer_users.id, customer_users.phone, customer_users.created_at AS createdAt, customer_users.is_verified AS isVerified, customer_users.saved_addresses AS savedAddresses FROM customer_sessions JOIN customer_users ON customer_users.id = customer_sessions.user_id WHERE customer_sessions.session_hash = ? AND customer_sessions.expires_at > ? AND customer_users.is_verified = 1", sessionHash, new Date().toISOString()).toArray()[0];
+    return row ?? null;
   }
 
   updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
