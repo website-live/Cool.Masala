@@ -35,6 +35,7 @@ jobs:
       ADMIN_ACCESS_KEY: ${{ secrets.STAGING_ADMIN_ACCESS_KEY }}
       ADMIN_TOTP_SECRET: ${{ secrets.STAGING_ADMIN_TOTP_SECRET }}
       NOTIFICATION_FROM_EMAIL: ${{ secrets.STAGING_NOTIFICATION_FROM_EMAIL }}
+      FAST2SMS_API_KEY: ${{ secrets.FAST2SMS_API_KEY }}
       WORKER_NAME: cool-masala-staging
       TARGET_ENV: staging
     steps:
@@ -88,6 +89,7 @@ jobs:
           printf '%s' "$ADMIN_ACCESS_KEY" | bunx wrangler secret put ADMIN_ACCESS_KEY --config wrangler.jsonc --env "$TARGET_ENV"
           printf '%s' "$ADMIN_TOTP_SECRET" | bunx wrangler secret put ADMIN_TOTP_SECRET --config wrangler.jsonc --env "$TARGET_ENV"
           printf '%s' "$NOTIFICATION_FROM_EMAIL" | bunx wrangler secret put NOTIFICATION_FROM_EMAIL --config wrangler.jsonc --env "$TARGET_ENV"
+      if [[ -n "$FAST2SMS_API_KEY" ]]; then printf '%s' "$FAST2SMS_API_KEY" | bunx wrangler secret put FAST2SMS_API_KEY --config wrangler.jsonc --env "$TARGET_ENV"; else echo "FAST2SMS_API_KEY not configured; staging OTP will use the console fallback."; fi
 
       - name: Deploy staging Worker and isolated Durable Object
         shell: bash
@@ -116,6 +118,7 @@ jobs:
           exit 1
 
       - name: Write staging deployment summary
+
         if: always()
         shell: bash
         run: |
