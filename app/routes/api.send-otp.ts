@@ -16,7 +16,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   const otp = String(Math.floor(100000 + crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
   try {
     await store(context).requestCustomerOtp(phone, await sha256Hex(`${phone}:${otp}`), new Date(Date.now() + 5 * 60 * 1000).toISOString());
-    const result = await sendFast2SmsOtp(context.cloudflare.env, phone, otp, request);
+    const result = await sendFast2SmsOtp(context.cloudflare.env, phone, otp);
     const diagnostic = context.cloudflare.env.APP_ENV === "staging" ? {
       configured: Boolean(context.cloudflare.env.FAST2SMS_API_KEY?.trim()),
       delivery: result.delivery,
