@@ -16,8 +16,15 @@ export async function action({ request, context }: Route.ActionArgs) {
   const otp = String(Math.floor(100000 + crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
   try {
     await store(context).requestCustomerOtp(phone, await sha256Hex(`${phone}:${otp}`), new Date(Date.now() + 5 * 60 * 1000).toISOString());
-    const delivery = await sendFast2SmsOtp(context.cloudflare.env, phone, otp, request);
-    return Response.json({ ok: true, delivery, expiresIn: 300, resendAfter: 30 });
+    const result = await sendFast2SmsOtp(context.cloudflare.env, phone, otp, request);
+    const diagnostic = context.cloudflare.env.APP_ENV === "staging" ? {
+      configured: Boolean(context.cloudflare.env.FAST2SMS_API_KEY?.trim()),
+      delivery: result.delivery,
+      endpoint: result.endpoint,
+      providerStatus: result.providerStatus,
+      providerMessage: result.providerMessage,
+    } : undefined;
+    return Response.json({ ok: true, delivery: result.delivery, expiresIn: 300, resendAfter: 30, ...(diagnostic ? { diagnostic } : {}) });
   } catch (error) {
     return Response.json({ ok: false, message: error instanceof Error ? error.message : "OTP could not be sent. Please try again." }, { status: 502 });
   }
