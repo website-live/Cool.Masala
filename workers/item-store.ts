@@ -31,7 +31,7 @@ export interface StoreProduct extends Record<string, SqlStorageValue> {
 
 export type OrderApprovalStatus = "PENDING_ADMIN_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED";
 export type OrderFulfilmentStatus = "Pending" | "Packed" | "Dispatched" | "Delivered";
-export type StoreOrderStatus = OrderApprovalStatus | OrderFulfilmentStatus;
+export type StoreOrderStatus = OrderApprovalStatus | OrderFulfilmentStatus | "UPI_PENDING_VERIFICATION" | "PAID_PROCESSING" | "COD_PENDING_WHATSAPP_VERIFICATION" | "COD_CONFIRMED_READY_TO_SHIP";
 
 export interface StoreOrder extends Record<string, SqlStorageValue> {
   id: number;
@@ -46,7 +46,10 @@ export interface StoreOrder extends Record<string, SqlStorageValue> {
   discount: number;
   total: number;
   giftIncluded: number;
-  paymentStatus: "Paid" | "COD" | "Pending";
+  paymentStatus: "Paid" | "COD" | "Pending" | "UPI_PENDING" | "UPI_REJECTED";
+  paymentMethod: "COD" | "UPI";
+  utr: string;
+  screenshotUrl: string;
   orderStatus: StoreOrderStatus;
   createdAt: string;
   courier: string;
@@ -104,7 +107,7 @@ export interface DashboardSummary {
   expenses: number;
 }
 
-export interface StoreSettings extends Record<string, SqlStorageValue> {
+export interface StoreSettings {
   storeName: string;
   supportPhone: string;
   lowStockThreshold: number;
@@ -115,6 +118,10 @@ export interface StoreSettings extends Record<string, SqlStorageValue> {
   codEnabled: number;
   codMinOrder: number;
   codMaxOrder: number;
+
+  upiVpa: string;
+  googlePlacesApiKey: string;
+  blockedPincodes: string[];
 }
 
 type ProductMetadata = "costPerItem" | "sku" | "barcode" | "trackQuantity" | "lowStockThreshold" | "seoTitle" | "seoDescription" | "slug" | "variants";
@@ -189,6 +196,9 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("courier")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN courier TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("tracking_number")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("cancelled_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''");
+    if (!orderColumns.has("payment_method")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'COD'");
+    if (!orderColumns.has("utr")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN utr TEXT NOT NULL DEFAULT ''");
+    if (!orderColumns.has("screenshot_url")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN screenshot_url TEXT NOT NULL DEFAULT ''");
     const productColumns = new Set(this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(products)").toArray().map((column) => column.name));
     const productMigrations: [string, string][] = [
       ["cost_per_item", "ALTER TABLE products ADD COLUMN cost_per_item REAL NOT NULL DEFAULT 0"],
@@ -229,6 +239,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       for (const product of seedApparel) this.insertSeedProduct(product);
     }
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('storeName', 'Cool Masala')");
+
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('supportPhone', '')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lowStockThreshold', '10')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('announcement', 'Free delivery on orders over ₹499')");
@@ -237,7 +248,11 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('timezone', 'Asia/Kolkata')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codEnabled', '1')");
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codMinOrder', '0')");
-    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codMaxOrder', '100000')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('codMaxOrder', '2000')");
+    this.ctx.storage.sql.exec("UPDATE settings SET value = '2000' WHERE key = 'codMaxOrder' AND value = '100000'");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('upiVpa', '')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('googlePlacesApiKey', '')");
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('blockedPincodes', '[]')");
   }
 
   private insertSeedProduct(product: Omit<StoreProduct, "id" | "updatedAt" | "active">): void {
@@ -257,7 +272,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
 
   getDashboard(): DashboardSummary {
     const products = this.ctx.storage.sql.exec<{ productCount: number; activeProducts: number; stockUnits: number }>("SELECT COUNT(*) AS productCount, SUM(active) AS activeProducts, COALESCE(SUM(stock), 0) AS stockUnits FROM products").one();
-    const orders = this.ctx.storage.sql.exec<{ orderCount: number; pendingOrders: number; sales: number }>("SELECT COUNT(*) AS orderCount, SUM(CASE WHEN order_status IN ('PENDING_ADMIN_APPROVAL', 'Pending', 'Packed') THEN 1 ELSE 0 END) AS pendingOrders, COALESCE(SUM(CASE WHEN payment_status = 'Paid' THEN total ELSE 0 END), 0) AS sales FROM orders").one();
+    const orders = this.ctx.storage.sql.exec<{ orderCount: number; pendingOrders: number; sales: number }>("SELECT COUNT(*) AS orderCount, SUM(CASE WHEN order_status IN ('PENDING_ADMIN_APPROVAL', 'UPI_PENDING_VERIFICATION', 'COD_PENDING_WHATSAPP_VERIFICATION', 'Pending', 'Packed') THEN 1 ELSE 0 END) AS pendingOrders, COALESCE(SUM(CASE WHEN payment_status = 'Paid' THEN total ELSE 0 END), 0) AS sales FROM orders").one();
     const expenses = this.ctx.storage.sql.exec<{ expenses: number }>("SELECT COALESCE(SUM(amount), 0) AS expenses FROM expenses").one().expenses;
     const threshold = Number(this.getSettings().lowStockThreshold);
     const lowStockCount = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM products WHERE active = 1 AND stock <= ?", threshold).one().count;
@@ -265,7 +280,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   listOrders(): StoreOrder[] {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders ORDER BY id DESC").toArray();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders ORDER BY id DESC").toArray();
   }
 
   listCustomers(): StoreCustomer[] {
@@ -277,7 +292,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   listPendingApprovals(): StoreOrder[] {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE order_status = 'PENDING_ADMIN_APPROVAL' ORDER BY id ASC").toArray();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE order_status IN ('PENDING_ADMIN_APPROVAL', 'UPI_PENDING_VERIFICATION', 'COD_PENDING_WHATSAPP_VERIFICATION') ORDER BY id ASC").toArray();
   }
 
   listExpenses(): StoreExpense[] {
@@ -287,7 +302,12 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   getSettings(): StoreSettings {
     const rows = this.ctx.storage.sql.exec<{ key: string; value: string }>("SELECT key, value FROM settings").toArray();
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "", storeEmail: values.storeEmail ?? "", currency: values.currency ?? "INR", timezone: values.timezone ?? "Asia/Kolkata", codEnabled: Number(values.codEnabled ?? 1), codMinOrder: Number(values.codMinOrder ?? 0), codMaxOrder: Number(values.codMaxOrder ?? 100000) };
+    let blockedPincodes: string[] = [];
+    try {
+      const parsed = JSON.parse(values.blockedPincodes ?? "[]");
+      if (Array.isArray(parsed)) blockedPincodes = parsed.filter((value): value is string => typeof value === "string" && /^[1-9][0-9]{5}$/.test(value));
+    } catch {}
+    return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "", storeEmail: values.storeEmail ?? "", currency: values.currency ?? "INR", timezone: values.timezone ?? "Asia/Kolkata", codEnabled: Number(values.codEnabled ?? 1), codMinOrder: Number(values.codMinOrder ?? 0), codMaxOrder: Number(values.codMaxOrder ?? 2000), upiVpa: values.upiVpa ?? "", googlePlacesApiKey: values.googlePlacesApiKey ?? "", blockedPincodes };
   }
 
   updateProduct(id: number, fields: Partial<StoreProduct>): void {
@@ -319,11 +339,12 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
 
   deleteDiscount(id: number): void { this.ctx.storage.sql.exec("DELETE FROM discounts WHERE id = ?", id); }
 
-  createOrder(input: { customerName: string; email: string; phone: string; address: string; ipAddress: string; items: { productId: number; quantity: number }[] }): CreateOrderResult {
+  createOrder(input: { customerName: string; email: string; phone: string; address: string; ipAddress: string; items: { productId: number; quantity: number }[]; paymentMethod: "COD" | "UPI"; utr?: string; screenshotUrl?: string }): CreateOrderResult {
     if (!input.items.length) throw new Error("Cart is empty");
     let created: StoreOrder | null = null;
     let lowStock: LowStockItem[] = [];
     this.ctx.storage.transactionSync(() => {
+      const settings = this.getSettings();
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM order_rate_limits WHERE (phone = ? OR ip = ?) AND created_at >= ?", input.phone, input.ipAddress, cutoff).one().count;
       if (recent >= 2) throw new Error("Too many orders from this phone and network. Please try again in 10 minutes.");
@@ -337,18 +358,25 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
         lines.push({ productId: product.id, name: product.name, category: product.category, quantity: requested.quantity, price: product.price, stockAfter: product.stock - requested.quantity });
       }
       const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
-      const shippingFee = subtotal >= 499 ? 0 : 49;
+      const discount = input.paymentMethod === "UPI" ? Math.round(subtotal * 0.1 * 100) / 100 : 0;
+      const baseShipping = subtotal >= 499 ? 0 : 49;
+
+      const codFee = input.paymentMethod === "COD" ? 50 : 0;
+      const shippingFee = baseShipping + codFee;
+      const total = subtotal - discount + shippingFee;
+      if (input.paymentMethod === "COD" && total > settings.codMaxOrder) throw new Error(`Cash on Delivery is unavailable above ₹${settings.codMaxOrder.toLocaleString("en-IN")}. Please choose UPI.`);
       const giftIncluded = lines.some((line) => line.category === "Printed T-Shirts") ? 1 : 0;
-      const total = subtotal + shippingFee;
+      const paymentStatus = input.paymentMethod === "UPI" ? "UPI_PENDING" : "COD";
+      const orderStatus = input.paymentMethod === "UPI" ? "UPI_PENDING_VERIFICATION" : "COD_PENDING_WHATSAPP_VERIFICATION";
       const itemSummary = lines.map((line) => `${line.name} × ${line.quantity}`).join(", ");
       const itemData = JSON.stringify(lines.map(({ productId, name, category, quantity, price }) => ({ productId, name, category, quantity, price })));
       created = this.ctx.storage.sql.exec<StoreOrder>(
-        "INSERT INTO orders (customer_name, email, phone, address, items, item_data, subtotal, shipping_fee, discount, total, gift_included, payment_status, order_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'COD', 'PENDING_ADMIN_APPROVAL') RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt",
-        input.customerName, input.email, input.phone, input.address, itemSummary, itemData, subtotal, shippingFee, total, giftIncluded,
+        "INSERT INTO orders (customer_name, email, phone, address, items, item_data, subtotal, shipping_fee, discount, total, gift_included, payment_status, payment_method, utr, screenshot_url, order_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt",
+        input.customerName, input.email, input.phone, input.address, itemSummary, itemData, subtotal, shippingFee, discount, total, giftIncluded, paymentStatus, input.paymentMethod, input.utr ?? "", input.screenshotUrl ?? "", orderStatus,
       ).one();
       for (const line of lines) this.ctx.storage.sql.exec("UPDATE products SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
       this.ctx.storage.sql.exec("INSERT INTO order_rate_limits (phone, ip) VALUES (?, ?)", input.phone, input.ipAddress);
-      const threshold = this.getSettings().lowStockThreshold;
+      const threshold = settings.lowStockThreshold;
       lowStock = lines.filter((line) => line.stockAfter <= threshold).map((line) => ({ productId: line.productId, name: line.name, stock: line.stockAfter, threshold }));
     });
     if (!created) throw new Error("Order could not be created");
@@ -382,6 +410,36 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return this.transitionApproval(id, "APPROVED");
   }
 
+  approveUpiPayment(id: number): StoreOrder {
+    const existing = this.getOrderForUpdate(id);
+    if (existing.paymentMethod !== "UPI" || existing.orderStatus !== "UPI_PENDING_VERIFICATION") throw new Error(`Order #${id} is not awaiting UPI verification`);
+    const order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET payment_status = 'Paid', order_status = 'PAID_PROCESSING' WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt", id).one();
+    this.logNotification("UPI_APPROVED", "UPI payment approved by administrator", id, {});
+    return order;
+  }
+
+  rejectUpiPayment(id: number): StoreOrder {
+    let order: StoreOrder | null = null;
+    this.ctx.storage.transactionSync(() => {
+      const existing = this.getOrderForUpdate(id);
+      if (existing.paymentMethod !== "UPI" || existing.orderStatus !== "UPI_PENDING_VERIFICATION") throw new Error(`Order #${id} is not awaiting UPI verification`);
+      const lines = this.parseItemData(existing.itemData, id);
+      for (const line of lines) this.ctx.storage.sql.exec("UPDATE products SET stock = stock + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
+      order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET payment_status = 'UPI_REJECTED', order_status = 'REJECTED' WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt", id).one();
+      this.logNotification("UPI_REJECTED", "UPI payment rejected by administrator", id, {});
+    });
+    if (!order) throw new Error(`Order #${id} could not be rejected`);
+    return order;
+  }
+
+  confirmCodOrder(id: number): StoreOrder {
+    const existing = this.getOrderForUpdate(id);
+    if (existing.paymentMethod !== "COD" || !["COD_PENDING_WHATSAPP_VERIFICATION", "COD_PENDING_VERIFICATION", "PENDING_ADMIN_APPROVAL"].includes(existing.orderStatus)) throw new Error(`Order #${id} is not awaiting COD confirmation`);
+    const order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET order_status = 'COD_CONFIRMED_READY_TO_SHIP' WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt", id).one();
+    this.logNotification("COD_CONFIRMED", "COD order confirmed for shipping", id, {});
+    return order;
+  }
+
   rejectOrder(id: number, reason = "Rejected by administrator"): StoreOrder {
     let order: StoreOrder | null = null;
     this.ctx.storage.transactionSync(() => {
@@ -389,7 +447,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       if (existing.orderStatus !== "PENDING_ADMIN_APPROVAL") throw new Error(`Order ${id} is not awaiting approval`);
       const lines = this.parseItemData(existing.itemData, id);
       for (const line of lines) this.ctx.storage.sql.exec("UPDATE products SET stock = stock + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
-      order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET order_status = 'REJECTED' WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt", id).one();
+      order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET order_status = 'REJECTED' WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt", id).one();
       this.logNotification("ORDER_REJECTED", reason, id, { reason });
     });
     if (!order) throw new Error(`Order ${id} could not be rejected`);
@@ -402,7 +460,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   private getOrderForUpdate(id: number): StoreOrder {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE id = ?", id).one();
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt FROM orders WHERE id = ?", id).one();
   }
 
   private parseItemData(itemData: string, orderId: number): { productId: number; quantity: number }[] {
@@ -415,7 +473,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   private transitionApproval(id: number, status: "APPROVED"): StoreOrder {
     const existing = this.getOrderForUpdate(id);
     if (existing.orderStatus !== "PENDING_ADMIN_APPROVAL") throw new Error(`Order ${id} is not awaiting approval`);
-    const order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET order_status = ? WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, order_status AS orderStatus, created_at AS createdAt", status, id).one();
+    const order = this.ctx.storage.sql.exec<StoreOrder>("UPDATE orders SET order_status = ? WHERE id = ? RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt", status, id).one();
     this.logNotification("ORDER_APPROVED", "Order approved by administrator", id, {});
     return order;
   }
@@ -423,6 +481,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   logError(code: string, message: string, context: Record<string, unknown> = {}): void {
     this.ctx.storage.sql.exec("INSERT INTO error_logs (code, message, context) VALUES (?, ?, ?)", code, message, JSON.stringify(context));
   }
+
 
   logNotification(type: string, message: string, orderId: number | null = null, payload: Record<string, unknown> = {}): void {
     this.ctx.storage.sql.exec("INSERT INTO notification_logs (type, message, order_id, payload) VALUES (?, ?, ?, ?)", type, message, orderId, JSON.stringify(payload));
@@ -439,9 +498,9 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return { ...summary, dbLatencyMs: Math.round((performance.now() - started) * 100) / 100 };
   }
 
-  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder">>): void {
+  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
     for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, String(value));
+      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, Array.isArray(value) ? JSON.stringify(value) : String(value));
     }
   }
 }
