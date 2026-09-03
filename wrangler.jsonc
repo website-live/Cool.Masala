@@ -30,7 +30,8 @@
     "staging": {
       "name": "cool-masala-staging",
       "vars": {
-        "APP_ENV": "staging"
+        "APP_ENV": "staging",
+        "ENVIRONMENT": "staging"
       },
       "assets": {
         "directory": "./public/",
@@ -56,7 +57,8 @@
     "production": {
       "name": "cool-masala-prod",
       "vars": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "ENVIRONMENT": "production"
       },
       "assets": {
         "directory": "./public/",
