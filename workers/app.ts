@@ -7,6 +7,7 @@ export { ItemStore } from "./item-store";
 
 interface Env {
   APP_ENV?: string;
+  ENVIRONMENT?: "staging" | "production" | string;
   ASSETS?: { fetch(request: Request): Promise<Response> | Response };
   CAMELAI: CamelAiBinding;
   ITEMS: DurableObjectNamespace<ItemStore>;
