@@ -17,7 +17,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   try {
     await store(context).requestCustomerOtp(phone, await sha256Hex(`${phone}:${otp}`), new Date(Date.now() + 5 * 60 * 1000).toISOString());
     const result = await sendFast2SmsOtp(context.cloudflare.env, phone, otp);
-    const diagnostic = context.cloudflare.env.APP_ENV === "staging" ? {
+    const diagnostic = context.cloudflare.env.ENVIRONMENT === "staging" ? {
       configured: Boolean(context.cloudflare.env.FAST2SMS_API_KEY?.trim()),
       delivery: result.delivery,
       endpoint: result.endpoint,
