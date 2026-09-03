@@ -1,5 +1,6 @@
 type Fast2SmsEnv = {
   APP_ENV?: string;
+  ENVIRONMENT?: string;
   FAST2SMS_API_KEY?: string;
   FAST2SMS_OTP_ID?: string;
   FAST2SMS_SENDER_ID?: string;
@@ -25,13 +26,15 @@ function responseMessage(responseText: string): string | null {
 
 export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: string): Promise<Fast2SmsResult> {
   const apiKey = env.FAST2SMS_API_KEY?.trim();
+  const isStaging = env.ENVIRONMENT === "staging";
+  const isProduction = env.ENVIRONMENT === "production";
   if (!apiKey) {
-    if (env.APP_ENV === "staging") {
+    if (isStaging) {
       const providerMessage = "FAST2SMS_API_KEY is not configured on the Worker.";
       console.warn(JSON.stringify({ code: "OTP_STAGING_CONSOLE_FALLBACK", phone, otp, configured: false, providerStatus: null, providerMessage }));
       return { delivery: "console", endpoint: null, providerStatus: null, providerMessage };
     }
-    throw new Error("SMS delivery is not configured.");
+    throw new Error(isProduction ? "SMS delivery is temporarily unavailable." : "SMS delivery is not configured.");
   }
 
   const phoneNumber = phone.replace(/^\+91/, "");
@@ -39,11 +42,11 @@ export async function sendFast2SmsOtp(env: Fast2SmsEnv, phone: string, otp: stri
   const endpoint = "https://www.fast2sms.com/dev/bulkV2";
   const body = { route: "q", message, language: "english", flash: 0, numbers: phoneNumber };
   const consoleFallback = (reason: string, providerStatus: number | null, providerMessage: string | null): Fast2SmsResult => {
-    if (env.APP_ENV === "staging" || env.APP_ENV === "development") {
+    if (isStaging) {
       console.warn(JSON.stringify({ code: "OTP_CONSOLE_FALLBACK", phone, otp, configured: true, endpoint, providerStatus, providerMessage, reason }));
       return { delivery: "console", endpoint, providerStatus, providerMessage: providerMessage ?? reason };
     }
-    throw new Error(reason);
+    throw new Error(isProduction ? "SMS delivery is temporarily unavailable." : reason);
   };
 
   let response: Response;
