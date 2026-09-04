@@ -198,6 +198,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("discount")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN discount REAL NOT NULL DEFAULT 0");
     if (!orderColumns.has("gift_included")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN gift_included INTEGER NOT NULL DEFAULT 0");
     if (!orderColumns.has("item_data")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN item_data TEXT NOT NULL DEFAULT '{}'");
+
     if (!orderColumns.has("courier")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN courier TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("tracking_number")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("cancelled_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''");
@@ -398,6 +399,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM order_rate_limits WHERE (phone = ? OR ip = ?) AND created_at >= ?", input.phone, input.ipAddress, cutoff).one().count;
       if (recent >= 2) throw new Error("Too many orders from this phone and network. Please try again in 10 minutes.");
       this.ctx.storage.sql.exec("DELETE FROM order_rate_limits WHERE created_at < ?", cutoff);
+
       const lines: { productId: number; name: string; category: string; quantity: number; price: number; stockAfter: number; trackQuantity: number }[] = [];
       for (const requested of input.items) {
         if (!Number.isInteger(requested.productId) || !Number.isInteger(requested.quantity) || requested.quantity < 1 || requested.quantity > 100) throw new Error("Invalid cart quantity");
@@ -598,6 +600,7 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   verifyCustomerOtp(phone: string, codeHash: string): CustomerUser {
     let user: CustomerUser | null = null;
     let failure = "";
+
     this.ctx.storage.transactionSync(() => {
       const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
       if (!request || new Date(request.expiresAt).getTime() < Date.now()) { failure = "This OTP has expired. Request a new one."; return; }
@@ -633,6 +636,11 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       const parsed = JSON.parse(row.items) as unknown;
       return Array.isArray(parsed) ? parsed.filter((item): item is CustomerCartItem => Boolean(item && typeof item === "object" && Number.isInteger((item as CustomerCartItem).productId) && Number.isInteger((item as CustomerCartItem).quantity) && (item as CustomerCartItem).quantity > 0)) : [];
     } catch { return []; }
+  }
+
+  saveCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
+    this.ctx.storage.sql.exec("DELETE FROM customer_carts WHERE user_id = ?", userId);
+    return this.mergeCustomerCart(userId, incoming);
   }
 
   mergeCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
