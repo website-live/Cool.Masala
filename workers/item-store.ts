@@ -198,7 +198,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("discount")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN discount REAL NOT NULL DEFAULT 0");
     if (!orderColumns.has("gift_included")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN gift_included INTEGER NOT NULL DEFAULT 0");
     if (!orderColumns.has("item_data")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN item_data TEXT NOT NULL DEFAULT '{}'");
-
     if (!orderColumns.has("courier")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN courier TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("tracking_number")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("cancelled_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''");
@@ -207,7 +206,8 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("screenshot_url")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN screenshot_url TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("inventory_hold_until")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN inventory_hold_until TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("abandoned_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN abandoned_at TEXT NOT NULL DEFAULT ''");
-    if (!orderColumns.has("last_activity_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    if (!orderColumns.has("last_activity_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''");
+    this.ctx.storage.sql.exec("UPDATE orders SET last_activity_at = created_at WHERE last_activity_at = ''");
     const productColumns = new Set(this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(products)").toArray().map((column) => column.name));
     const productMigrations: [string, string][] = [
       ["cost_per_item", "ALTER TABLE products ADD COLUMN cost_per_item REAL NOT NULL DEFAULT 0"],
@@ -399,7 +399,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       if (recent >= 2) throw new Error("Too many orders from this phone and network. Please try again in 10 minutes.");
       this.ctx.storage.sql.exec("DELETE FROM order_rate_limits WHERE created_at < ?", cutoff);
       const lines: { productId: number; name: string; category: string; quantity: number; price: number; stockAfter: number; trackQuantity: number }[] = [];
-
       for (const requested of input.items) {
         if (!Number.isInteger(requested.productId) || !Number.isInteger(requested.quantity) || requested.quantity < 1 || requested.quantity > 100) throw new Error("Invalid cart quantity");
         const product = this.ctx.storage.sql.exec<StoreProduct>("SELECT id, name, category, price, stock, active, track_quantity AS trackQuantity FROM products WHERE id = ?", requested.productId).one();
@@ -600,7 +599,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     let user: CustomerUser | null = null;
     let failure = "";
     this.ctx.storage.transactionSync(() => {
-
       const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
       if (!request || new Date(request.expiresAt).getTime() < Date.now()) { failure = "This OTP has expired. Request a new one."; return; }
       if (request.attempts >= 5) { failure = "Too many incorrect OTP attempts. Request a new code."; return; }
