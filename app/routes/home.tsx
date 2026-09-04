@@ -18,6 +18,7 @@ import Gift from "lucide-react/dist/esm/icons/gift.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import LogIn from "lucide-react/dist/esm/icons/log-in.js";
 
+import { ConversionModal } from "~/components/conversion-modal";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -198,8 +199,18 @@ function formatPrice(value: number) {
   return `₹${value.toLocaleString("en-IN")}`;
 }
 
+
 function discountPercent(product: Product) {
   return Math.round(((product.mrp - product.price) / product.mrp) * 100);
+}
+
+const POPUP_TTL = 24 * 60 * 60 * 1000;
+function popupAvailable(key: string) {
+  if (typeof window === "undefined") return false;
+  return Number(localStorage.getItem(key) ?? 0) <= Date.now();
+}
+function suppressPopup(key: string) {
+  localStorage.setItem(key, String(Date.now() + POPUP_TTL));
 }
 
 export default function Home() {
@@ -215,7 +226,10 @@ export default function Home() {
   const [customer, setCustomer] = useState<CustomerSession | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loginModal, setLoginModal] = useState<"timed" | "checkout" | null>(null);
+  const [conversionModal, setConversionModal] = useState<"exit" | "scroll" | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState("");
+  const [toast, setToast] = useState("");
+  const [mobileCtaVisible, setMobileCtaVisible] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -225,10 +239,31 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!authChecked || customer || sessionStorage.getItem("login_modal_dismissed") === "true") return;
+    if (!authChecked || customer || !popupAvailable("cool_masala_timed_login_dismissed_until") || sessionStorage.getItem("login_modal_dismissed") === "true") return;
     const timer = window.setTimeout(() => setLoginModal("timed"), 9000);
     return () => window.clearTimeout(timer);
   }, [authChecked, customer]);
+
+  useEffect(() => {
+    if (!authChecked || customer) return;
+    const onMouseLeave = (event: MouseEvent) => {
+      if (event.clientY <= 0 && popupAvailable("cool_masala_exit_dismissed_until")) setConversionModal("exit");
+    };
+    document.addEventListener("mouseleave", onMouseLeave);
+    return () => document.removeEventListener("mouseleave", onMouseLeave);
+  }, [authChecked, customer]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const productList = document.getElementById("products");
+      if (!productList) return;
+      const progress = (window.scrollY - productList.offsetTop) / Math.max(productList.offsetHeight - window.innerHeight, 1);
+      if (progress >= 0.6 && popupAvailable("cool_masala_scroll_dismissed_until")) setConversionModal("scroll");
+      setMobileCtaVisible(window.innerWidth < 768 && window.scrollY > productList.offsetTop + 260);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     if (!authChecked || customer || new URLSearchParams(window.location.search).get("checkout") !== "required") return;
@@ -277,9 +312,13 @@ export default function Home() {
   const cartTotal = cart.reduce((total, line) => total + line.product.price * line.quantity, 0);
   const cartShipping = cartTotal === 0 || cartTotal >= 499 ? 0 : 49;
   const cartGrandTotal = cartTotal + cartShipping;
+  const shippingProgress = Math.min(100, Math.round((cartTotal / 499) * 100));
+  const shippingRemaining = Math.max(0, 499 - cartTotal);
   const includesTShirt = cart.some((line) => line.product.category === "Printed T-Shirts");
 
   function addToCart(product: Product) {
+    setToast(`${product.name} added! ✓`);
+    window.setTimeout(() => setToast(""), 2200);
     setCart((current) => {
       const existing = current.find((line) => line.product.id === product.id);
       if (existing) {
@@ -289,6 +328,13 @@ export default function Home() {
       return [...current, { product, quantity: 1 }];
     });
     setCartOpen(true);
+  }
+
+  function notifyOutOfStock(product: Product) {
+    const message = `Please notify me when ${product.name} is back in stock.`;
+    const digits = String(settings.supportPhone ?? "").replace(/\D/g, "");
+    if (digits.length >= 10) window.open(`https://wa.me/${digits}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+    else { setToast("We’ll notify you when this item is restocked."); window.setTimeout(() => setToast(""), 2500); }
   }
 
   function changeQuantity(productId: number, amount: number) {
@@ -305,9 +351,14 @@ export default function Home() {
     setLoginModal("checkout");
   }
 
-  function handleLoginSuccess(user: CustomerSession) {
+  async function handleLoginSuccess(user: CustomerSession) {
     const wasCheckout = loginModal === "checkout";
     setCustomer(user);
+    try {
+      const response = await fetch("/api/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cart.map((line) => ({ productId: line.product.id, quantity: line.quantity })) }) });
+      const result = await response.json() as { ok?: boolean; items?: { productId: number; quantity: number }[] };
+      if (result.ok && result.items) setCart((current) => result.items!.flatMap((item) => { const product = products.find((candidate) => candidate.id === item.productId); return product ? [{ product, quantity: Math.min(product.stock ?? item.quantity, item.quantity) }] : []; }));
+    } catch { setToast("Your guest cart was kept on this device."); window.setTimeout(() => setToast(""), 2500); }
     setLoginModal(null);
     setCheckoutMessage("");
     if (wasCheckout) navigate("/checkout");
@@ -348,11 +399,12 @@ export default function Home() {
           </div>
         </section>
 
+
         <section id="products" className="mx-auto flex max-w-[1280px] scroll-mt-20 gap-3 px-3 pb-10 sm:px-6">
           <aside className="hidden w-[230px] shrink-0 bg-white shadow-sm md:block"><div className="border-b border-[#e0e0e0] px-5 py-4"><div className="flex items-center gap-2 text-lg font-semibold"><Filter className="size-4 text-[#2874f0]" /> Filters</div></div><div className="border-b border-[#e0e0e0] px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Shop category</p><div className="space-y-3">{categories.slice(1).map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(activeCategory === category.name ? "All Products" : category.name)} className={`flex w-full items-center gap-2 text-left text-sm ${activeCategory === category.name ? "font-semibold text-[#2874f0]" : "text-[#555]"}`}><span className={`grid size-4 place-items-center rounded-[2px] border text-[10px] ${activeCategory === category.name ? "border-[#2874f0] bg-[#2874f0] text-white" : "border-[#c2c2c2]"}`}>{activeCategory === category.name ? "✓" : ""}</span>{category.name}</button>)}</div></div><div className="border-b border-[#e0e0e0] px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Price range</p><div className="h-1 rounded-full bg-[#d7e3fc]"><div className="h-1 w-[72%] rounded-full bg-[#2874f0]" /></div><div className="mt-3 flex justify-between text-xs text-[#555]"><span>₹99</span><span>₹699</span></div></div><div className="px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Offers</p><p className="text-sm text-[#555]">Discounted products</p><p className="mt-2 text-sm text-[#555]">Free gift with t-shirts</p></div></aside>
 
           <div className="min-w-0 flex-1 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b border-[#e0e0e0] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><div className="flex items-center gap-2"><h2 className="text-xl font-semibold">{activeCategory}</h2><span className="text-sm text-[#878787]">({filteredProducts.length} items)</span></div><p className="mt-1 text-xs text-[#878787]">Masalas, streetwear and flavour-filled gifts</p></div><div className="flex items-center gap-2"><span className="hidden text-sm text-[#878787] sm:inline">Sort by</span><select value={sort} onChange={(event) => setSort(event.target.value)} className="h-9 rounded-sm border border-[#e0e0e0] bg-white px-3 text-sm font-semibold outline-none focus:border-[#2874f0]"><option>Popular</option><option>Price: Low to High</option><option>Price: High to Low</option></select></div></div>
-            {filteredProducts.length === 0 ? <div className="px-6 py-20 text-center"><p className="text-xl font-semibold">No products found</p><p className="mt-2 text-sm text-[#878787]">Try another search or clear your filters.</p><Button onClick={() => { setQuery(""); setActiveCategory("All Products"); }} className="mt-5 rounded-sm bg-[#2874f0] text-white hover:bg-[#1d5fc4]">View all products</Button></div> : <div className="storefront-product-grid grid grid-cols-2 gap-3 p-3 sm:grid-cols-2 sm:gap-0 sm:p-0 lg:grid-cols-4 xl:grid-cols-5">{filteredProducts.map((product) => <article key={product.id} className="group relative flex h-full flex-col rounded-lg border border-[#e4e4e7] bg-white p-3 transition duration-200 hover:z-10 hover:-translate-y-1 hover:shadow-[0_8px_20px_rgba(0,0,0,.10)] sm:rounded-none sm:border-b sm:border-l-0 sm:border-r sm:border-t-0 sm:p-5"><button type="button" onClick={() => toggleWishlist(product.id)} className={`absolute right-5 top-5 z-10 grid size-8 place-items-center rounded-full bg-white shadow-sm ${wishlisted.includes(product.id) ? "text-[#e53935]" : "text-[#878787]"}`} aria-label={`${wishlisted.includes(product.id) ? "Remove" : "Add"} ${product.name} ${wishlisted.includes(product.id) ? "from" : "to"} wishlist`}><Heart className={`size-4 ${wishlisted.includes(product.id) ? "fill-current" : ""}`} /></button><div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#f9f9f9] p-6"><img className="h-full w-full object-cover mix-blend-multiply transition duration-300 group-hover:scale-105" src={product.image} alt={product.name} loading="lazy" />{(product.stock === 0 || product.badge) && <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-bold ${product.stock === 0 ? "bg-[#d4d4d8] text-black" : "bg-[#c1fbd4] text-black"}`}>{product.stock === 0 ? "Out of stock" : product.badge}</span>}</div><div className="pt-4"><h3 className="truncate text-base font-medium text-[#212121]" title={product.name}>{product.name}</h3><p className="mt-1 truncate text-xs text-[#878787]">{product.description}</p><div className="mt-2 flex items-center gap-1"><span className="inline-flex items-center gap-0.5 rounded-sm bg-[#388e3c] px-1.5 py-0.5 text-xs font-bold text-white">{product.rating} <Star className="size-3 fill-current" /></span><span className="text-xs text-[#878787]">{product.reviews.toLocaleString("en-IN")} ratings</span></div><div className="mt-3 flex items-baseline gap-2"><span className="text-lg font-semibold">{formatPrice(product.price)}</span><span className="text-xs text-[#878787] line-through">{formatPrice(product.mrp)}</span><span className="text-xs font-semibold text-[#388e3c]">{discountPercent(product)}% off</span></div><Button onClick={() => addToCart(product)} disabled={product.stock === 0} className={`mt-auto min-h-11 h-11 w-full rounded-full text-sm font-semibold text-white opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 ${product.stock === 0 ? "bg-[#a1a1aa] hover:bg-[#a1a1aa]" : "bg-black hover:bg-[#3f3f46]"}`}><ShoppingCart className="mr-2 size-4" /> {product.stock === 0 ? "Out of stock" : "Add to cart"}</Button></div></article>)}</div>}
+            {filteredProducts.length === 0 ? <div className="px-6 py-16 text-center"><p className="text-xl font-semibold">No results found for &ldquo;{query}&rdquo;</p><p className="mt-2 text-sm text-[#878787]">Check out our Best Sellers below:</p><div className="mx-auto mt-6 grid max-w-3xl grid-cols-2 gap-3 text-left sm:grid-cols-4">{products.slice().sort((a, b) => b.rating - a.rating).slice(0, 4).map((product) => <button key={product.id} type="button" onClick={() => addToCart(product)} className="rounded-lg border border-[#e4e4e7] p-3 text-xs hover:border-black"><span className="block truncate font-semibold">{product.name}</span><span className="mt-1 block">{formatPrice(product.price)}</span></button>)}</div><Button onClick={() => { setQuery(""); setActiveCategory("All Products"); }} className="mt-6 rounded-sm bg-[#2874f0] text-white hover:bg-[#1d5fc4]">View all products</Button></div> : <div className="storefront-product-grid grid grid-cols-2 gap-3 p-3 sm:grid-cols-2 sm:gap-0 sm:p-0 lg:grid-cols-4 xl:grid-cols-5">{filteredProducts.map((product) => <article key={product.id} className="group relative flex h-full flex-col rounded-lg border border-[#e4e4e7] bg-white p-3 transition duration-200 hover:z-10 hover:-translate-y-1 hover:shadow-[0_8px_20px_rgba(0,0,0,.10)] sm:rounded-none sm:border-b sm:border-l-0 sm:border-r sm:border-t-0 sm:p-5"><button type="button" onClick={() => toggleWishlist(product.id)} className={`absolute right-5 top-5 z-10 grid size-8 place-items-center rounded-full bg-white shadow-sm ${wishlisted.includes(product.id) ? "text-[#e53935]" : "text-[#878787]"}`} aria-label={`${wishlisted.includes(product.id) ? "Remove" : "Add"} ${product.name} ${wishlisted.includes(product.id) ? "from" : "to"} wishlist`}><Heart className={`size-4 ${wishlisted.includes(product.id) ? "fill-current" : ""}`} /></button><div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#f9f9f9] p-6"><img className="h-full w-full object-cover mix-blend-multiply transition duration-300 group-hover:scale-105" src={product.image} alt={product.name} loading="lazy" />{(product.stock === 0 || product.badge) && <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-bold ${product.stock === 0 ? "bg-[#d4d4d8] text-black" : "bg-[#c1fbd4] text-black"}`}>{product.stock === 0 ? "Out of stock" : product.badge}</span>}</div><div className="pt-4"><h3 className="truncate text-base font-medium text-[#212121]" title={product.name}>{product.name}</h3><p className="mt-1 truncate text-xs text-[#878787]">{product.description}</p><div className="mt-2 flex items-center gap-1"><span className="inline-flex items-center gap-0.5 rounded-sm bg-[#388e3c] px-1.5 py-0.5 text-xs font-bold text-white">{product.rating} <Star className="size-3 fill-current" /></span><span className="text-xs text-[#878787]">{product.reviews.toLocaleString("en-IN")} ratings</span></div><div className="mt-3 flex items-baseline gap-2"><span className="text-lg font-semibold">{formatPrice(product.price)}</span><span className="text-xs text-[#878787] line-through">{formatPrice(product.mrp)}</span><span className="text-xs font-semibold text-[#388e3c]">{discountPercent(product)}% off</span></div>{product.stock === 0 ? <button type="button" onClick={() => notifyOutOfStock(product)} className="mt-auto min-h-11 h-11 w-full rounded-full bg-[#fff4f2] text-sm font-semibold text-[#d72c0d] opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">Notify me on WhatsApp/SMS</button> : <Button onClick={() => addToCart(product)} className="mt-auto min-h-11 h-11 w-full rounded-full bg-black text-sm font-semibold text-white opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100"><ShoppingCart className="mr-2 size-4" /> Add to cart</Button>}</div></article>)}</div>}
           </div>
         </section>
 
@@ -361,8 +413,11 @@ export default function Home() {
 
       <footer className="bg-black px-5 py-8 text-sm text-white/75 sm:px-8"><div className="mx-auto flex max-w-[1280px] flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="font-display text-xl font-bold italic text-white">cool<span className="text-[#ffe500]">.</span>masala</p><p className="mt-1 text-xs">Masalas, tees and all the flavour.</p></div><p className="text-xs">© 2024 Cool Masala · Flavour and streetwear across India</p><div className="flex gap-5 text-xs"><a href="#top" className="hover:text-white">Back to top</a><a href="#why" className="hover:text-white">About us</a></div></div></footer>
 
-      {cartOpen && <div className="fixed inset-0 z-50"><button type="button" aria-label="Close cart" className="absolute inset-0 cursor-default bg-black/40" onClick={() => setCartOpen(false)} /><aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-[#e0e0e0] bg-[#2874f0] px-5 py-4 text-white"><div><p className="text-xs font-semibold uppercase tracking-wider text-white/75">Cool Masala cart</p><h2 className="text-xl font-semibold">Your basket</h2></div><Button onClick={() => setCartOpen(false)} variant="ghost" className="size-9 rounded-sm p-0 text-white hover:bg-white/10" aria-label="Close cart"><X className="size-5" /></Button></div>{checkoutMessage && <div className="border-b border-[#f1b6a7] bg-[#fff4f2] px-5 py-3 text-sm font-medium text-[#d72c0d]">{checkoutMessage}</div>}{cart.length === 0 ? <div className="flex flex-1 flex-col items-center justify-center px-8 text-center"><ShoppingCart className="size-12 text-[#c2c2c2]" /><h3 className="mt-4 text-xl font-semibold">Your cart is empty</h3><p className="mt-2 text-sm leading-6 text-[#878787]">Add masalas or a printed tee to start your order.</p><Button onClick={() => setCartOpen(false)} className="mt-5 rounded-sm bg-[#2874f0] text-white hover:bg-[#1d5fc4]">Browse products</Button></div> : <><div className="flex-1 space-y-4 overflow-y-auto bg-[#f1f3f6] p-4">{cart.map((line) => <div key={line.product.id} className="flex gap-3 bg-white p-3 shadow-sm"><img className="size-20 object-cover" src={line.product.image} alt="" /><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><p className="truncate text-sm font-semibold">{line.product.name}</p><p className="shrink-0 text-sm font-semibold">{formatPrice(line.product.price * line.quantity)}</p></div><p className="mt-1 text-xs text-[#878787]">{formatPrice(line.product.price)} each</p><div className="mt-3 inline-flex items-center border border-[#e0e0e0]"><button type="button" onClick={() => changeQuantity(line.product.id, -1)} className="grid size-7 place-items-center hover:bg-[#f1f3f6]" aria-label={`Remove one ${line.product.name}`}><Minus className="size-3" /></button><span className="w-7 text-center text-xs font-bold">{line.quantity}</span><button type="button" onClick={() => changeQuantity(line.product.id, 1)} className="grid size-7 place-items-center hover:bg-[#f1f3f6]" aria-label={`Add one ${line.product.name}`}><Plus className="size-3" /></button></div></div></div>)}{includesTShirt && <div className="flex items-start gap-2 border border-[#b7dfba] bg-[#edf7ee] p-3 text-xs font-semibold text-[#2e7d32]"><Gift className="mt-0.5 size-4 shrink-0" /> Free mini masala gift will be included with your printed t-shirt order.</div>}</div><div className="border-t border-[#e4e4e7] px-5 py-5"><div className="mb-4 flex items-center gap-2 rounded-lg border border-[#bfe8cb] bg-[#c1fbd4] px-3 py-2 text-xs font-semibold text-black"><ShieldCheck className="size-4" /> Cash on Delivery available</div><div className="space-y-2 text-sm"><div className="flex justify-between"><span className="text-[#71717a]">Subtotal</span><span>{formatPrice(cartTotal)}</span></div><div className="flex justify-between"><span className="text-[#71717a]">Delivery</span><span className={cartShipping === 0 ? "font-semibold text-black" : ""}>{cartShipping === 0 ? "FREE" : formatPrice(cartShipping)}</span></div><div className="flex justify-between border-t border-[#e4e4e7] pt-3 text-lg font-bold"><span>Total payable</span><span>{formatPrice(cartGrandTotal)}</span></div></div><Button onClick={openCheckout} className="mt-4 h-11 w-full rounded-full bg-black font-semibold text-white hover:bg-[#3f3f46]">Proceed to checkout <ChevronRight className="ml-1 size-4" /></Button><p className="mt-3 text-center text-[11px] text-[#71717a]">Secure checkout · Free delivery over ₹499</p></div></>}</aside></div>}
-      {loginModal && <CustomerLoginModal variant={loginModal} notice={checkoutMessage} onClose={() => { if (loginModal === "timed") sessionStorage.setItem("login_modal_dismissed", "true"); setLoginModal(null); }} onSuccess={handleLoginSuccess} />}
+      {cartOpen && <div className="fixed inset-0 z-50"><button type="button" aria-label="Close cart" className="absolute inset-0 cursor-default bg-black/40" onClick={() => setCartOpen(false)} /><aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-[#e0e0e0] bg-[#2874f0] px-5 py-4 text-white"><div><p className="text-xs font-semibold uppercase tracking-wider text-white/75">Cool Masala cart</p><h2 className="text-xl font-semibold">Your basket</h2></div><Button onClick={() => setCartOpen(false)} variant="ghost" className="size-9 rounded-sm p-0 text-white hover:bg-white/10" aria-label="Close cart"><X className="size-5" /></Button></div>{checkoutMessage && <div className="border-b border-[#f1b6a7] bg-[#fff4f2] px-5 py-3 text-sm font-medium text-[#d72c0d]">{checkoutMessage}</div>}{cart.length === 0 ? <div className="flex flex-1 flex-col items-center justify-center px-8 text-center"><ShoppingCart className="size-12 text-[#c2c2c2]" /><h3 className="mt-4 text-xl font-semibold">Your cart is empty</h3><p className="mt-2 text-sm leading-6 text-[#878787]">Add masalas or a printed tee to start your order.</p><Button onClick={() => setCartOpen(false)} className="mt-5 rounded-sm bg-[#2874f0] text-white hover:bg-[#1d5fc4]">Browse products</Button></div> : <><div className="flex-1 space-y-4 overflow-y-auto bg-[#f1f3f6] p-4">{cart.map((line) => <div key={line.product.id} className="flex gap-3 bg-white p-3 shadow-sm"><img className="size-20 object-cover" src={line.product.image} alt="" /><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><p className="truncate text-sm font-semibold">{line.product.name}</p><p className="shrink-0 text-sm font-semibold">{formatPrice(line.product.price * line.quantity)}</p></div><p className="mt-1 text-xs text-[#878787]">{formatPrice(line.product.price)} each</p><div className="mt-3 inline-flex items-center border border-[#e0e0e0]"><button type="button" onClick={() => changeQuantity(line.product.id, -1)} className="grid size-7 place-items-center hover:bg-[#f1f3f6]" aria-label={`Remove one ${line.product.name}`}><Minus className="size-3" /></button><span className="w-7 text-center text-xs font-bold">{line.quantity}</span><button type="button" onClick={() => changeQuantity(line.product.id, 1)} className="grid size-7 place-items-center hover:bg-[#f1f3f6]" aria-label={`Add one ${line.product.name}`}><Plus className="size-3" /></button></div></div></div>)}{includesTShirt && <div className="flex items-start gap-2 border border-[#b7dfba] bg-[#edf7ee] p-3 text-xs font-semibold text-[#2e7d32]"><Gift className="mt-0.5 size-4 shrink-0" /> Free mini masala gift will be included with your printed t-shirt order.</div>}</div><div className="border-t border-[#e4e4e7] px-5 py-5"><div className="mb-4 rounded-lg border border-[#bfe8cb] bg-[#f1fff5] px-3 py-3 text-xs font-semibold text-[#006e52]"><div className="flex justify-between"><span>{shippingRemaining > 0 ? `Add ${formatPrice(shippingRemaining)} more to unlock FREE Delivery!` : "🎉 You unlocked FREE Delivery!"}</span><span>{shippingProgress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#388e3c] transition-all" style={{ width: `${shippingProgress}%` }} /></div></div><div className="mb-4 flex items-center gap-2 rounded-lg border border-[#bfe8cb] bg-[#c1fbd4] px-3 py-2 text-xs font-semibold text-black"><ShieldCheck className="size-4" /> Cash on Delivery available</div><div className="space-y-2 text-sm"><div className="flex justify-between"><span className="text-[#71717a]">Subtotal</span><span>{formatPrice(cartTotal)}</span></div><div className="flex justify-between"><span className="text-[#71717a]">Delivery</span><span className={cartShipping === 0 ? "font-semibold text-black" : ""}>{cartShipping === 0 ? "FREE" : formatPrice(cartShipping)}</span></div><div className="flex justify-between border-t border-[#e4e4e7] pt-3 text-lg font-bold"><span>Total payable</span><span>{formatPrice(cartGrandTotal)}</span></div></div><Button onClick={openCheckout} className="mt-4 h-11 w-full rounded-full bg-black font-semibold text-white hover:bg-[#3f3f46]">Proceed to checkout <ChevronRight className="ml-1 size-4" /></Button><p className="mt-3 text-center text-[11px] text-[#71717a]">Secure checkout · Free delivery over ₹499</p></div></>}</aside></div>}
+      {mobileCtaVisible && filteredProducts[0] && <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-black/10 bg-white/95 px-4 py-3 shadow-[0_-4px_18px_rgba(0,0,0,.12)] backdrop-blur md:hidden"><div className="min-w-0"><p className="truncate text-xs font-semibold">{filteredProducts[0].name}</p><p className="text-sm font-bold">{formatPrice(filteredProducts[0].price)}</p></div><Button onClick={() => addToCart(filteredProducts[0])} disabled={filteredProducts[0].stock === 0} className="h-10 rounded-full bg-black px-5 text-xs font-bold text-white">{filteredProducts[0].stock === 0 ? "Out of stock" : "Add to Cart"}</Button></div>}
+      {toast && <div role="status" className="fixed left-1/2 top-20 z-[1100] -translate-x-1/2 rounded-full bg-black px-5 py-3 text-sm font-bold text-white shadow-xl">{toast}</div>}
+      {conversionModal && <ConversionModal kind={conversionModal} onClose={() => { suppressPopup(`cool_masala_${conversionModal}_dismissed_until`); setConversionModal(null); }} />}
+      {loginModal && <CustomerLoginModal variant={loginModal} notice={checkoutMessage} onClose={() => { if (loginModal === "timed") { suppressPopup("cool_masala_timed_login_dismissed_until"); sessionStorage.setItem("login_modal_dismissed", "true"); } setLoginModal(null); }} onSuccess={handleLoginSuccess} />}
     </div>
   );
 }
