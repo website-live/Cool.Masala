@@ -1,7 +1,7 @@
 import type { ItemStore, CustomerUser } from "../../workers/item-store";
 
 export const CUSTOMER_SESSION_COOKIE = "cm_customer_session";
-export const CUSTOMER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+export const CUSTOMER_SESSION_MAX_AGE = 60 * 60 * 24 * 60;
 
 export function normalizeIndianPhone(value: string): string | null {
   const digits = value.replace(/\D/g, "");
