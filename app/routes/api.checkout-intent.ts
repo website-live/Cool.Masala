@@ -6,6 +6,10 @@ function store(context: Route.ActionArgs["context"]) {
   return namespace.get(namespace.idFromName("default"));
 }
 
+export async function loader() {
+  return Response.json({ ok: false, message: "Method not allowed." }, { status: 405 });
+}
+
 export async function action({ request, context }: Route.ActionArgs) {
   if (request.method !== "POST") return Response.json({ ok: false, message: "Method not allowed." }, { status: 405 });
   const items = store(context);
