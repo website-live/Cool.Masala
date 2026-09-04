@@ -27,7 +27,8 @@ export async function action({ request, context }: Route.ActionArgs) {
   if (request.method !== "POST") return Response.json({ ok: false, message: "Method not allowed." }, { status: 405 });
   const customer = await getCustomerSession(request, store(context));
   if (!customer) return Response.json({ ok: false, message: "Login required." }, { status: 401 });
-  let body: { items?: unknown } = {};
+  let body: { items?: unknown; replace?: boolean } = {};
   try { body = await request.json() as typeof body; } catch { return Response.json({ ok: false, message: "Invalid cart." }, { status: 400 }); }
-  return Response.json({ ok: true, items: await store(context).mergeCustomerCart(customer.id, parseItems(body.items)) });
+  const parsed = parseItems(body.items);
+  return Response.json({ ok: true, items: await (body.replace ? store(context).saveCustomerCart(customer.id, parsed) : store(context).mergeCustomerCart(customer.id, parsed)) });
 }
