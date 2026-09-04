@@ -23,6 +23,7 @@ interface Env {
   FAST2SMS_API_KEY?: string;
   FAST2SMS_OTP_ID?: string;
   FAST2SMS_SENDER_ID?: string;
+  ABANDONED_CART_WEBHOOK_URL?: string;
 }
 
 declare module "react-router" {
@@ -63,6 +64,15 @@ export default {
     } catch (error) {
       console.error(JSON.stringify({ code: "WORKER_REQUEST_FAILED", message: error instanceof Error ? error.message : String(error), path: new URL(request.url).pathname, method: request.method }));
       throw error;
+    }
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const namespace = env.ITEMS;
+    const store = namespace.get(namespace.idFromName("default"));
+    const abandoned = await store.markAbandonedCheckoutIntents();
+    await store.releaseExpiredInventoryHolds();
+    if (abandoned.length && env.ABANDONED_CART_WEBHOOK_URL) {
+      ctx.waitUntil(fetch(env.ABANDONED_CART_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "ABANDONED_CART", generatedAt: new Date().toISOString(), carts: abandoned.map((item) => ({ id: item.id, userId: item.userId, phone: item.phone, items: item.items, lastSeenAt: item.lastSeenAt })) }) }).catch((error) => console.error(JSON.stringify({ code: "ABANDONED_CART_WEBHOOK_FAILED", message: error instanceof Error ? error.message : String(error) }))));
     }
   },
 } satisfies ExportedHandler<Env>;
