@@ -230,6 +230,8 @@ export default function Home() {
   const [checkoutMessage, setCheckoutMessage] = useState("");
   const [toast, setToast] = useState("");
   const [mobileCtaVisible, setMobileCtaVisible] = useState(false);
+  const cartSyncInitialized = useRef(false);
+  const visitStartedAt = useRef(Date.now());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -247,6 +249,7 @@ export default function Home() {
   useEffect(() => {
     if (!authChecked || customer) return;
     const onMouseLeave = (event: MouseEvent) => {
+      if (Date.now() - visitStartedAt.current < 9000) return;
       if (event.clientY <= 0 && popupAvailable("cool_masala_exit_dismissed_until")) setConversionModal("exit");
     };
     document.addEventListener("mouseleave", onMouseLeave);
@@ -258,7 +261,7 @@ export default function Home() {
       const productList = document.getElementById("products");
       if (!productList) return;
       const progress = (window.scrollY - productList.offsetTop) / Math.max(productList.offsetHeight - window.innerHeight, 1);
-      if (progress >= 0.6 && popupAvailable("cool_masala_scroll_dismissed_until")) setConversionModal("scroll");
+      if (Date.now() - visitStartedAt.current >= 9000 && progress >= 0.6 && popupAvailable("cool_masala_scroll_dismissed_until")) setConversionModal("scroll");
       setMobileCtaVisible(window.innerWidth < 768 && window.scrollY > productList.offsetTop + 260);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -296,6 +299,12 @@ export default function Home() {
       );
     }
   }, [cart, cartHydrated]);
+
+  useEffect(() => {
+    if (!customer || !cartHydrated) return;
+    const items = cart.map((line) => ({ productId: line.product.id, quantity: line.quantity }));
+    void fetch("/api/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ replace: cartSyncInitialized.current, items }) }).then(() => { cartSyncInitialized.current = true; });
+  }, [customer, cart, cartHydrated]);
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -358,6 +367,7 @@ export default function Home() {
       const response = await fetch("/api/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cart.map((line) => ({ productId: line.product.id, quantity: line.quantity })) }) });
       const result = await response.json() as { ok?: boolean; items?: { productId: number; quantity: number }[] };
       if (result.ok && result.items) setCart((current) => result.items!.flatMap((item) => { const product = products.find((candidate) => candidate.id === item.productId); return product ? [{ product, quantity: Math.min(product.stock ?? item.quantity, item.quantity) }] : []; }));
+      cartSyncInitialized.current = true;
     } catch { setToast("Your guest cart was kept on this device."); window.setTimeout(() => setToast(""), 2500); }
     setLoginModal(null);
     setCheckoutMessage("");
@@ -389,6 +399,7 @@ export default function Home() {
         </nav>
       </header>
 
+
       <main id="top">
 
         <section className="mx-auto max-w-[1280px] px-3 py-3 sm:px-6 sm:py-5">
@@ -398,7 +409,6 @@ export default function Home() {
             <div className="absolute right-[4%] hidden w-[42%] max-w-[500px] rotate-[-3deg] md:block"><div className="relative overflow-hidden rounded-[52%_48%_48%_52%/48%_48%_52%_52%] border-8 border-white/10 shadow-2xl"><img className="aspect-[1.2] w-full object-cover" src="https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1000&q=90" alt="Colourful Indian spices" /></div><div className="absolute -bottom-3 -left-6 rounded-full bg-[#c1fbd4] px-4 py-2 text-sm font-bold text-black shadow-lg">Up to 30% off</div></div>
           </div>
         </section>
-
 
         <section id="products" className="mx-auto flex max-w-[1280px] scroll-mt-20 gap-3 px-3 pb-10 sm:px-6">
           <aside className="hidden w-[230px] shrink-0 bg-white shadow-sm md:block"><div className="border-b border-[#e0e0e0] px-5 py-4"><div className="flex items-center gap-2 text-lg font-semibold"><Filter className="size-4 text-[#2874f0]" /> Filters</div></div><div className="border-b border-[#e0e0e0] px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Shop category</p><div className="space-y-3">{categories.slice(1).map((category) => <button key={category.name} type="button" onClick={() => setActiveCategory(activeCategory === category.name ? "All Products" : category.name)} className={`flex w-full items-center gap-2 text-left text-sm ${activeCategory === category.name ? "font-semibold text-[#2874f0]" : "text-[#555]"}`}><span className={`grid size-4 place-items-center rounded-[2px] border text-[10px] ${activeCategory === category.name ? "border-[#2874f0] bg-[#2874f0] text-white" : "border-[#c2c2c2]"}`}>{activeCategory === category.name ? "✓" : ""}</span>{category.name}</button>)}</div></div><div className="border-b border-[#e0e0e0] px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Price range</p><div className="h-1 rounded-full bg-[#d7e3fc]"><div className="h-1 w-[72%] rounded-full bg-[#2874f0]" /></div><div className="mt-3 flex justify-between text-xs text-[#555]"><span>₹99</span><span>₹699</span></div></div><div className="px-5 py-5"><p className="mb-3 text-xs font-bold uppercase text-[#878787]">Offers</p><p className="text-sm text-[#555]">Discounted products</p><p className="mt-2 text-sm text-[#555]">Free gift with t-shirts</p></div></aside>
