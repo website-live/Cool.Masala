@@ -16,7 +16,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   try {
     const user = await store(context).verifyCustomerOtp(phone, await sha256Hex(`${phone}:${otp}`));
     const token = randomToken();
-    await store(context).createCustomerSession(user.id, await sha256Hex(token), new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+    await store(context).createCustomerSession(user.id, await sha256Hex(token), new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString());
     return Response.json({ ok: true, user: { id: user.id, phone: user.phone, isVerified: user.isVerified } }, { headers: { "Set-Cookie": customerSessionCookie(token) } });
   } catch (error) {
     return Response.json({ ok: false, message: error instanceof Error ? error.message : "OTP verification failed." }, { status: 400 });
