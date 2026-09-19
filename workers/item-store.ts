@@ -223,6 +223,8 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     ];
     for (const [column, statement] of productMigrations) if (!productColumns.has(column)) this.ctx.storage.sql.exec(statement);
     this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS inventory_movements (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, quantity_delta INTEGER NOT NULL, reason TEXT NOT NULL, order_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+      CREATE INDEX IF NOT EXISTS idx_inventory_movements_product_created ON inventory_movements(product_id, created_at);
       CREATE TABLE IF NOT EXISTS order_rate_limits (phone TEXT NOT NULL, ip TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
       CREATE INDEX IF NOT EXISTS idx_order_rate_limits_lookup ON order_rate_limits(phone, ip, created_at);
       CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, message TEXT NOT NULL, context TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -309,6 +311,38 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       "INSERT INTO products (name, description, category, price, mrp, rating, reviews, image, badge, stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       product.name, product.description, product.category, product.price, product.mrp, product.rating, product.reviews, product.image, product.badge, product.stock,
     );
+  }
+
+  archiveProduct(id: number): void {
+    const product = this.ctx.storage.sql.exec<{ name: string }>("SELECT name FROM products WHERE id = ?", id).toArray()[0];
+    if (!product) throw new Error("Product not found");
+    this.ctx.storage.sql.exec("UPDATE products SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+    this.logNotification("PRODUCT_ARCHIVED", `Product ${product.name} archived`, null, { productId: id });
+  }
+
+  listInventoryMovements(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT m.id, m.product_id AS productId, p.name, m.quantity_delta AS quantityDelta, m.reason, m.order_id AS orderId, m.created_at AS createdAt FROM inventory_movements m LEFT JOIN products p ON p.id = m.product_id ORDER BY m.id DESC LIMIT 200").toArray();
+  }
+
+  listInventoryHolds(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT id, customer_name AS customerName, email, total, order_status AS orderStatus, inventory_hold_until AS holdUntil, created_at AS createdAt FROM orders WHERE inventory_hold_until <> '' ORDER BY id DESC LIMIT 200").toArray();
+  }
+
+  listAbandonedCheckouts(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT id, user_id AS userId, phone, items, created_at AS createdAt, last_seen_at AS lastSeenAt, abandoned_at AS abandonedAt FROM checkout_intents WHERE abandoned_at <> '' ORDER BY id DESC LIMIT 200").toArray();
+  }
+
+  listNotifications(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT id, type, message, order_id AS orderId, payload, created_at AS createdAt FROM notification_logs ORDER BY id DESC LIMIT 100").toArray();
+  }
+
+  listAnalytics(fromDate = '', toDate = ''): Record<string, SqlStorageValue> {
+    const from = fromDate || '1970-01-01'; const to = toDate || '2999-12-31';
+    return this.ctx.storage.sql.exec("SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue, COALESCE(AVG(total),0) AS averageOrder FROM orders WHERE substr(created_at,1,10) >= ? AND substr(created_at,1,10) <= ? AND order_status NOT IN ('CANCELLED','REJECTED')", from, to).one();
+  }
+
+  getCustomerDetail(email: string): Array<StoreOrder> {
+    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt, inventory_hold_until AS inventoryHoldUntil, abandoned_at AS abandonedAt FROM orders WHERE email = ? ORDER BY id DESC", email).toArray();
   }
 
   listProducts(includeInactive = false): StoreProduct[] {
