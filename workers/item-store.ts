@@ -654,48 +654,5 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   createCustomerSession(userId: number, sessionHash: string, expiresAt: string): void {
-    this.ctx.storage.sql.exec("DELETE FROM customer_sessions WHERE expires_at < ?", new Date().toISOString());
-    this.ctx.storage.sql.exec("INSERT INTO customer_sessions (session_hash, user_id, expires_at) VALUES (?, ?, ?)", sessionHash, userId, expiresAt);
-  }
 
-  getCustomerBySession(sessionHash: string): CustomerUser | null {
-    const row = this.ctx.storage.sql.exec<CustomerUser>("SELECT customer_users.id, customer_users.phone, customer_users.created_at AS createdAt, customer_users.is_verified AS isVerified, customer_users.saved_addresses AS savedAddresses FROM customer_sessions JOIN customer_users ON customer_users.id = customer_sessions.user_id WHERE customer_sessions.session_hash = ? AND customer_sessions.expires_at > ? AND customer_users.is_verified = 1", sessionHash, new Date().toISOString()).toArray()[0];
-    return row ?? null;
-  }
-
-  getCustomerCart(userId: number): CustomerCartItem[] {
-    const row = this.ctx.storage.sql.exec<{ items: string }>("SELECT items FROM customer_carts WHERE user_id = ?", userId).toArray()[0];
-    if (!row) return [];
-    try {
-      const parsed = JSON.parse(row.items) as unknown;
-      return Array.isArray(parsed) ? parsed.filter((item): item is CustomerCartItem => Boolean(item && typeof item === "object" && Number.isInteger((item as CustomerCartItem).productId) && Number.isInteger((item as CustomerCartItem).quantity) && (item as CustomerCartItem).quantity > 0)) : [];
-    } catch { return []; }
-  }
-
-  saveCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
-    this.ctx.storage.sql.exec("DELETE FROM customer_carts WHERE user_id = ?", userId);
-    return this.mergeCustomerCart(userId, incoming);
-  }
-
-  mergeCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
-    const merged = new Map<number, number>();
-    for (const item of [...this.getCustomerCart(userId), ...incoming]) {
-      if (!Number.isInteger(item.productId) || !Number.isInteger(item.quantity) || item.productId < 1 || item.quantity < 1) continue;
-      merged.set(item.productId, (merged.get(item.productId) ?? 0) + Math.min(item.quantity, 100));
-    }
-    const safeItems: CustomerCartItem[] = [];
-    for (const [productId, quantity] of merged) {
-      const product = this.ctx.storage.sql.exec<{ stock: number; active: number }>("SELECT stock, active FROM products WHERE id = ?", productId).toArray()[0];
-      if (!product || product.active !== 1 || product.stock < 1) continue;
-      safeItems.push({ productId, quantity: Math.min(quantity, product.stock) });
-    }
-    this.ctx.storage.sql.exec("INSERT INTO customer_carts (user_id, items, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET items = excluded.items, updated_at = CURRENT_TIMESTAMP", userId, JSON.stringify(safeItems));
-    return safeItems;
-  }
-
-  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, Array.isArray(value) ? JSON.stringify(value) : String(value));
-    }
-  }
-}
+[Showing lines 1-656 of 702. Use offset=657 to continue.]
