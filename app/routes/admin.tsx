@@ -292,5 +292,28 @@ function Products({ products, allProducts, query, setQuery, status, setStatus, s
 }
 
 function ProductRow({ product, checked, toggle, saving }: { product: AdminProduct; checked: boolean; toggle: () => void; saving: boolean }) {
+  return (
+    <tr className="border-t border-[#f0f1f2] align-top">
+      <td className="px-5 py-4"><input type="checkbox" checked={checked} onChange={toggle} aria-label={`Select ${product.name}`} /></td>
+      <td className="px-3 py-4"><div className="flex min-w-[290px] gap-3"><img src={product.image} alt="" className="size-12 rounded-lg object-cover" /><div><p className="font-semibold">{product.name}</p><p className="mt-1 text-xs text-[#6d7175]">{product.category} · {product.description}</p>{product.badge && <span className="mt-2 inline-flex rounded bg-[#f1f2f3] px-2 py-1 text-[10px] font-semibold text-[#6d7175]">{product.badge}</span>}</div></div></td>
+      <td className="px-3 py-4"><span className={(product.active ? "bg-[#e3f1ed] text-[#006e52]" : "bg-[#f1f2f3] text-[#6d7175]") + " inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold"}>{product.active ? "Active" : "Draft"}</span></td>
+      <td className="px-3 py-4"><p className="font-semibold">{money(product.price)}</p><p className="text-xs text-[#8c9196]">MRP {money(product.mrp)} · margin {product.costPerItem ? Math.round(((product.price - product.costPerItem) / product.price) * 100) : "—"}%</p></td>
+      <td className="px-3 py-4"><span className={(product.stock <= Number(product.lowStockThreshold ?? 10) ? "text-[#d72c0d]" : "text-[#202223]") + " font-semibold"}>{product.stock} units</span><p className="text-xs text-[#8c9196]">{product.stock <= Number(product.lowStockThreshold ?? 10) ? "Low stock" : "In stock"}</p></td>
+      <td className="px-3 py-4 text-xs text-[#6d7175]">{product.sku || "—"}</td>
+      <td className="px-5 py-4 text-right">
+        <details className="relative">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-lg border border-[#c9cccf] px-3 py-2 text-xs font-semibold"><Pencil className="size-3" /> Edit</summary>
+          <div className="absolute right-0 z-20 mt-2 w-[min(92vw,560px)] rounded-xl border border-[#e1e3e5] bg-white p-5 text-left shadow-2xl">
+            <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold">Edit product</h3><p className="text-xs text-[#6d7175]">Catalogue, inventory, variants and SEO</p></div><X className="size-4 text-[#8c9196]" /></div>
+            <Form method="post" className="grid gap-3 sm:grid-cols-2">
+              <input type="hidden" name="intent" value="update-product" /><input type="hidden" name="id" value={product.id} />
+              <Field label="Title"><Input name="name" defaultValue={product.name} required className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="Category"><select name="category" defaultValue={product.category} className="mt-1 h-9 w-full rounded-lg border border-[#c9cccf] bg-white px-2 text-xs"><option>Blended Masala</option><option>Whole Spices</option><option>Chilli Powders</option><option>Turmeric</option><option>Gift Packs</option><option>Printed T-Shirts</option></select></Field>
+              <Field label="Description"><Input name="description" defaultValue={product.description} required className="mt-1 h-9 rounded-lg" /></Field><Field label="Image URL"><Input name="image" defaultValue={product.image} required className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="Price"><Input name="price" type="number" defaultValue={product.price} required className="mt-1 h-9 rounded-lg" /></Field><Field label="MRP"><Input name="mrp" type="number" defaultValue={product.mrp} required className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="Cost per item"><Input name="costPerItem" type="number" defaultValue={product.costPerItem ?? 0} className="mt-1 h-9 rounded-lg" /></Field><Field label="Stock"><Input name="stock" type="number" defaultValue={product.stock} required className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="SKU"><Input name="sku" defaultValue={product.sku ?? ""} className="mt-1 h-9 rounded-lg" /></Field><Field label="Barcode"><Input name="barcode" defaultValue={product.barcode ?? ""} className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="Low-stock threshold"><Input name="lowStockThreshold" type="number" defaultValue={product.lowStockThreshold ?? 10} className="mt-1 h-9 rounded-lg" /></Field><Field label="Slug"><Input name="slug" defaultValue={product.slug ?? ""} className="mt-1 h-9 rounded-lg" /></Field>
+              <Field label="Variants JSON"><Input name="variants" defaultValue={product.variants ?? "[]"} className="mt-1 h-9 rounded-lg" /></Field><Field label="SEO title"><Input name="seoTitle" defaultValue={product.seoTitle ?? ""} className="mt-1 h-9 rounded-lg" /></Field>
 
-[Showing lines 1-294 of 315. Use offset=295 to continue.]
+[Showing lines 1-317 of 346. Use offset=318 to continue.]
