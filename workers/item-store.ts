@@ -102,6 +102,13 @@ export interface StoreExpense extends Record<string, SqlStorageValue> {
   createdAt: string;
 }
 
+export interface InventoryMovement extends Record<string, SqlStorageValue> { id: number; productId: number; productName: string; quantity: number; direction: "in" | "out" | "adjustment"; reason: string; referenceId: number | null; createdAt: string; }
+export interface InventoryHold extends Record<string, SqlStorageValue> { orderId: number; customerName: string; phone: string; items: string; total: number; orderStatus: string; holdUntil: string; createdAt: string; }
+export interface AbandonedCheckout extends Record<string, SqlStorageValue> { id: number; userId: number; phone: string; items: string; createdAt: string; lastSeenAt: string; abandonedAt: string; convertedOrderId: number | null; }
+export interface AdminNotification extends Record<string, SqlStorageValue> { id: number; type: string; message: string; orderId: number | null; payload: string; createdAt: string; }
+export interface CustomerOrderHistory extends Record<string, SqlStorageValue> { id: number; customerName: string; email: string; phone: string; address: string; items: string; total: number; paymentStatus: string; paymentMethod: string; orderStatus: string; createdAt: string; }
+export interface AnalyticsSummary extends Record<string, SqlStorageValue> { date: string; orders: number; sales: number; cancelled: number; }
+
 export interface DashboardSummary {
   productCount: number;
   activeProducts: number;
@@ -198,7 +205,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     if (!orderColumns.has("discount")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN discount REAL NOT NULL DEFAULT 0");
     if (!orderColumns.has("gift_included")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN gift_included INTEGER NOT NULL DEFAULT 0");
     if (!orderColumns.has("item_data")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN item_data TEXT NOT NULL DEFAULT '{}'");
-
     if (!orderColumns.has("courier")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN courier TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("tracking_number")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''");
     if (!orderColumns.has("cancelled_at")) this.ctx.storage.sql.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''");
@@ -227,6 +233,8 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       CREATE INDEX IF NOT EXISTS idx_order_rate_limits_lookup ON order_rate_limits(phone, ip, created_at);
       CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, message TEXT NOT NULL, context TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE IF NOT EXISTS notification_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, message TEXT NOT NULL, order_id INTEGER, payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE IF NOT EXISTS inventory_movements (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, product_name TEXT NOT NULL, quantity INTEGER NOT NULL, direction TEXT NOT NULL, reason TEXT NOT NULL, reference_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+      CREATE INDEX IF NOT EXISTS idx_inventory_movements_product_created ON inventory_movements(product_id, created_at);
       CREATE TABLE IF NOT EXISTS discounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT NOT NULL UNIQUE,
@@ -309,6 +317,37 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       "INSERT INTO products (name, description, category, price, mrp, rating, reviews, image, badge, stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       product.name, product.description, product.category, product.price, product.mrp, product.rating, product.reviews, product.image, product.badge, product.stock,
     );
+  }
+
+  deleteProduct(id: number): void {
+    const product = this.ctx.storage.sql.exec<{ id: number; name: string; stock: number }>("SELECT id, name, stock FROM products WHERE id = ?", id).toArray()[0];
+    if (!product) throw new Error(`Product ${id} was not found`);
+    this.ctx.storage.sql.exec("UPDATE products SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+    this.ctx.storage.sql.exec("INSERT INTO inventory_movements (product_id, product_name, quantity, direction, reason) VALUES (?, ?, ?, 'adjustment', 'Product archived')", product.id, product.name, 0);
+  }
+
+  listInventoryMovements(limit = 200): InventoryMovement[] {
+    return this.ctx.storage.sql.exec<InventoryMovement>("SELECT id, product_id AS productId, product_name AS productName, quantity, direction, reason, reference_id AS referenceId, created_at AS createdAt FROM inventory_movements ORDER BY id DESC LIMIT ?", Math.max(1, Math.min(limit, 500))).toArray();
+  }
+
+  listInventoryHolds(): InventoryHold[] {
+    return this.ctx.storage.sql.exec<InventoryHold>("SELECT id AS orderId, customer_name AS customerName, phone, items, total, order_status AS orderStatus, inventory_hold_until AS holdUntil, created_at AS createdAt FROM orders WHERE inventory_hold_until != '' ORDER BY id DESC").toArray();
+  }
+
+  listAbandonedCheckouts(): AbandonedCheckout[] {
+    return this.ctx.storage.sql.exec<AbandonedCheckout>("SELECT id, user_id AS userId, phone, items, created_at AS createdAt, last_seen_at AS lastSeenAt, abandoned_at AS abandonedAt, converted_order_id AS convertedOrderId FROM checkout_intents WHERE abandoned_at != '' ORDER BY id DESC").toArray();
+  }
+
+  listNotifications(limit = 100): AdminNotification[] {
+    return this.ctx.storage.sql.exec<AdminNotification>("SELECT id, type, message, order_id AS orderId, payload, created_at AS createdAt FROM notification_logs ORDER BY id DESC LIMIT ?", Math.max(1, Math.min(limit, 300))).toArray();
+  }
+
+  listCustomerOrders(email: string): CustomerOrderHistory[] {
+    return this.ctx.storage.sql.exec<CustomerOrderHistory>("SELECT id, customer_name AS customerName, email, phone, address, items, total, payment_status AS paymentStatus, payment_method AS paymentMethod, order_status AS orderStatus, created_at AS createdAt FROM orders WHERE email = ? ORDER BY id DESC", email).toArray();
+  }
+
+  listAnalytics(fromDate: string, toDate: string): AnalyticsSummary[] {
+    return this.ctx.storage.sql.exec<AnalyticsSummary>("SELECT substr(created_at, 1, 10) AS date, COUNT(*) AS orders, COALESCE(SUM(CASE WHEN order_status NOT IN ('CANCELLED', 'REJECTED') THEN total ELSE 0 END), 0) AS sales, SUM(CASE WHEN order_status IN ('CANCELLED', 'REJECTED') THEN 1 ELSE 0 END) AS cancelled FROM orders WHERE substr(created_at, 1, 10) BETWEEN ? AND ? GROUP BY substr(created_at, 1, 10) ORDER BY date DESC", fromDate, toDate).toArray();
   }
 
   listProducts(includeInactive = false): StoreProduct[] {
@@ -399,7 +438,6 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       const recent = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM order_rate_limits WHERE (phone = ? OR ip = ?) AND created_at >= ?", input.phone, input.ipAddress, cutoff).one().count;
       if (recent >= 2) throw new Error("Too many orders from this phone and network. Please try again in 10 minutes.");
       this.ctx.storage.sql.exec("DELETE FROM order_rate_limits WHERE created_at < ?", cutoff);
-
       const lines: { productId: number; name: string; category: string; quantity: number; price: number; stockAfter: number; trackQuantity: number }[] = [];
       for (const requested of input.items) {
         if (!Number.isInteger(requested.productId) || !Number.isInteger(requested.quantity) || requested.quantity < 1 || requested.quantity > 100) throw new Error("Invalid cart quantity");
@@ -425,7 +463,10 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
         "INSERT INTO orders (customer_name, email, phone, address, items, item_data, subtotal, shipping_fee, discount, total, gift_included, payment_status, payment_method, utr, screenshot_url, order_status, inventory_hold_until, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, inventory_hold_until AS inventoryHoldUntil, abandoned_at AS abandonedAt",
         input.customerName, input.email, input.phone, input.address, itemSummary, itemData, subtotal, shippingFee, discount, total, giftIncluded, paymentStatus, input.paymentMethod, input.utr ?? "", input.screenshotUrl ?? "", orderStatus, inventoryHoldUntil, new Date().toISOString(),
       ).one();
-      for (const line of lines) if (line.trackQuantity !== 0) this.ctx.storage.sql.exec("UPDATE products SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
+      for (const line of lines) if (line.trackQuantity !== 0) {
+        this.ctx.storage.sql.exec("UPDATE products SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", line.quantity, line.productId);
+        this.ctx.storage.sql.exec("INSERT INTO inventory_movements (product_id, product_name, quantity, direction, reason, reference_id) VALUES (?, ?, ?, 'out', 'Order inventory hold', ?)", line.productId, line.name, line.quantity, created?.id ?? null);
+      }
       this.ctx.storage.sql.exec("INSERT INTO order_rate_limits (phone, ip) VALUES (?, ?)", input.phone, input.ipAddress);
       const threshold = settings.lowStockThreshold;
       lowStock = lines.filter((line) => line.stockAfter <= threshold).map((line) => ({ productId: line.productId, name: line.name, stock: line.stockAfter, threshold }));
@@ -599,69 +640,5 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
 
   verifyCustomerOtp(phone: string, codeHash: string): CustomerUser {
     let user: CustomerUser | null = null;
-    let failure = "";
 
-    this.ctx.storage.transactionSync(() => {
-      const request = this.ctx.storage.sql.exec<{ id: number; codeHash: string; expiresAt: string; attempts: number }>("SELECT id, code_hash AS codeHash, expires_at AS expiresAt, attempts FROM customer_otp_requests WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1", phone).toArray()[0];
-      if (!request || new Date(request.expiresAt).getTime() < Date.now()) { failure = "This OTP has expired. Request a new one."; return; }
-      if (request.attempts >= 5) { failure = "Too many incorrect OTP attempts. Request a new code."; return; }
-      if (request.codeHash !== codeHash) {
-        this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET attempts = attempts + 1 WHERE id = ?", request.id);
-        failure = "The OTP is incorrect.";
-        return;
-      }
-      this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET used_at = CURRENT_TIMESTAMP WHERE id = ?", request.id);
-      this.ctx.storage.sql.exec("INSERT INTO customer_users (phone, is_verified) VALUES (?, 1) ON CONFLICT(phone) DO UPDATE SET is_verified = 1", phone);
-      user = this.ctx.storage.sql.exec<CustomerUser>("SELECT id, phone, created_at AS createdAt, is_verified AS isVerified, saved_addresses AS savedAddresses FROM customer_users WHERE phone = ?", phone).one();
-    });
-    if (failure) throw new Error(failure);
-    if (!user) throw new Error("Customer verification could not be completed.");
-    return user;
-  }
-
-  createCustomerSession(userId: number, sessionHash: string, expiresAt: string): void {
-    this.ctx.storage.sql.exec("DELETE FROM customer_sessions WHERE expires_at < ?", new Date().toISOString());
-    this.ctx.storage.sql.exec("INSERT INTO customer_sessions (session_hash, user_id, expires_at) VALUES (?, ?, ?)", sessionHash, userId, expiresAt);
-  }
-
-  getCustomerBySession(sessionHash: string): CustomerUser | null {
-    const row = this.ctx.storage.sql.exec<CustomerUser>("SELECT customer_users.id, customer_users.phone, customer_users.created_at AS createdAt, customer_users.is_verified AS isVerified, customer_users.saved_addresses AS savedAddresses FROM customer_sessions JOIN customer_users ON customer_users.id = customer_sessions.user_id WHERE customer_sessions.session_hash = ? AND customer_sessions.expires_at > ? AND customer_users.is_verified = 1", sessionHash, new Date().toISOString()).toArray()[0];
-    return row ?? null;
-  }
-
-  getCustomerCart(userId: number): CustomerCartItem[] {
-    const row = this.ctx.storage.sql.exec<{ items: string }>("SELECT items FROM customer_carts WHERE user_id = ?", userId).toArray()[0];
-    if (!row) return [];
-    try {
-      const parsed = JSON.parse(row.items) as unknown;
-      return Array.isArray(parsed) ? parsed.filter((item): item is CustomerCartItem => Boolean(item && typeof item === "object" && Number.isInteger((item as CustomerCartItem).productId) && Number.isInteger((item as CustomerCartItem).quantity) && (item as CustomerCartItem).quantity > 0)) : [];
-    } catch { return []; }
-  }
-
-  saveCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
-    this.ctx.storage.sql.exec("DELETE FROM customer_carts WHERE user_id = ?", userId);
-    return this.mergeCustomerCart(userId, incoming);
-  }
-
-  mergeCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
-    const merged = new Map<number, number>();
-    for (const item of [...this.getCustomerCart(userId), ...incoming]) {
-      if (!Number.isInteger(item.productId) || !Number.isInteger(item.quantity) || item.productId < 1 || item.quantity < 1) continue;
-      merged.set(item.productId, (merged.get(item.productId) ?? 0) + Math.min(item.quantity, 100));
-    }
-    const safeItems: CustomerCartItem[] = [];
-    for (const [productId, quantity] of merged) {
-      const product = this.ctx.storage.sql.exec<{ stock: number; active: number }>("SELECT stock, active FROM products WHERE id = ?", productId).toArray()[0];
-      if (!product || product.active !== 1 || product.stock < 1) continue;
-      safeItems.push({ productId, quantity: Math.min(quantity, product.stock) });
-    }
-    this.ctx.storage.sql.exec("INSERT INTO customer_carts (user_id, items, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET items = excluded.items, updated_at = CURRENT_TIMESTAMP", userId, JSON.stringify(safeItems));
-    return safeItems;
-  }
-
-  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, Array.isArray(value) ? JSON.stringify(value) : String(value));
-    }
-  }
-}
+[Showing lines 1-642 of 708. Use offset=643 to continue.]
