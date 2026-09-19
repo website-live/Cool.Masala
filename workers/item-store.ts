@@ -359,6 +359,13 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "", storeEmail: values.storeEmail ?? "", currency: values.currency ?? "INR", timezone: values.timezone ?? "Asia/Kolkata", codEnabled: Number(values.codEnabled ?? 1), codMinOrder: Number(values.codMinOrder ?? 0), codMaxOrder: Number(values.codMaxOrder ?? 2000), upiVpa: values.upiVpa ?? "", googlePlacesApiKey: values.googlePlacesApiKey ?? "", blockedPincodes };
   }
 
+  archiveProduct(id: number): void {
+    const product = this.ctx.storage.sql.exec<{ id: number; name: string }>("SELECT id, name FROM products WHERE id = ?", id).toArray()[0];
+    if (!product) throw new Error(`Product ${id} was not found`);
+    this.ctx.storage.sql.exec("UPDATE products SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+    this.logNotification("PRODUCT_ARCHIVED", `Product ${product.name} archived`, null, { productId: id });
+  }
+
   updateProduct(id: number, fields: Partial<StoreProduct>): void {
     const columnMap: Record<string, string> = { name: "name", description: "description", category: "category", price: "price", mrp: "mrp", image: "image", badge: "badge", stock: "stock", active: "active", costPerItem: "cost_per_item", sku: "sku", barcode: "barcode", trackQuantity: "track_quantity", lowStockThreshold: "low_stock_threshold", seoTitle: "seo_title", seoDescription: "seo_description", slug: "slug", variants: "variants" };
     const entries = Object.entries(fields).filter(([key, value]) => columnMap[key] && value !== undefined);
@@ -656,12 +663,5 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       safeItems.push({ productId, quantity: Math.min(quantity, product.stock) });
     }
     this.ctx.storage.sql.exec("INSERT INTO customer_carts (user_id, items, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET items = excluded.items, updated_at = CURRENT_TIMESTAMP", userId, JSON.stringify(safeItems));
-    return safeItems;
-  }
 
-  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, Array.isArray(value) ? JSON.stringify(value) : String(value));
-    }
-  }
-}
+[Showing lines 1-665 of 675. Use offset=666 to continue.]
