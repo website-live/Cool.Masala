@@ -332,6 +332,12 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return this.ctx.storage.sql.exec("SELECT id, user_id AS userId, phone, items, created_at AS createdAt, last_seen_at AS lastSeenAt, abandoned_at AS abandonedAt FROM checkout_intents WHERE abandoned_at <> '' ORDER BY id DESC LIMIT 200").toArray();
   }
 
+  resolveNotification(id: number): void {
+    const row = this.ctx.storage.sql.exec<{ id: number }>("SELECT id FROM notification_logs WHERE id = ?", id).toArray()[0];
+    if (!row) throw new Error("Notification not found");
+    this.ctx.storage.sql.exec("UPDATE notification_logs SET payload = ? WHERE id = ?", JSON.stringify({ resolved: true }), id);
+  }
+
   listNotifications(): Array<Record<string, SqlStorageValue>> {
     return this.ctx.storage.sql.exec("SELECT id, type, message, order_id AS orderId, payload, created_at AS createdAt FROM notification_logs ORDER BY id DESC LIMIT 100").toArray();
   }
