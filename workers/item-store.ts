@@ -314,42 +314,15 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
   }
 
   archiveProduct(id: number): void {
-    const product = this.ctx.storage.sql.exec<{ name: string }>("SELECT name FROM products WHERE id = ?", id).toArray()[0];
-    if (!product) throw new Error("Product not found");
-    this.ctx.storage.sql.exec("UPDATE products SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
-    this.logNotification("PRODUCT_ARCHIVED", `Product ${product.name} archived`, null, { productId: id });
+    const product = this.ctx.storage.sql.exec<{ name: string }>("SELECT name FROM products WHERE id = ?", id).toArray()[0]; if (!product) throw new Error("Product not found"); this.ctx.storage.sql.exec("UPDATE products SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id); this.logNotification("PRODUCT_ARCHIVED", `Product ${product.name} archived`, null, { productId: id });
   }
-
-  listInventoryMovements(): Array<Record<string, SqlStorageValue>> {
-    return this.ctx.storage.sql.exec("SELECT m.id, m.product_id AS productId, p.name, m.quantity_delta AS quantityDelta, m.reason, m.order_id AS orderId, m.created_at AS createdAt FROM inventory_movements m LEFT JOIN products p ON p.id = m.product_id ORDER BY m.id DESC LIMIT 200").toArray();
-  }
-
-  listInventoryHolds(): Array<Record<string, SqlStorageValue>> {
-    return this.ctx.storage.sql.exec("SELECT id, customer_name AS customerName, email, total, order_status AS orderStatus, inventory_hold_until AS holdUntil, created_at AS createdAt FROM orders WHERE inventory_hold_until <> '' ORDER BY id DESC LIMIT 200").toArray();
-  }
-
-  listAbandonedCheckouts(): Array<Record<string, SqlStorageValue>> {
-    return this.ctx.storage.sql.exec("SELECT id, user_id AS userId, phone, items, created_at AS createdAt, last_seen_at AS lastSeenAt, abandoned_at AS abandonedAt FROM checkout_intents WHERE abandoned_at <> '' ORDER BY id DESC LIMIT 200").toArray();
-  }
-
-  resolveNotification(id: number): void {
-    const row = this.ctx.storage.sql.exec<{ id: number }>("SELECT id FROM notification_logs WHERE id = ?", id).toArray()[0];
-    if (!row) throw new Error("Notification not found");
-    this.ctx.storage.sql.exec("UPDATE notification_logs SET payload = ? WHERE id = ?", JSON.stringify({ resolved: true }), id);
-  }
-
-  listNotifications(): Array<Record<string, SqlStorageValue>> {
-    return this.ctx.storage.sql.exec("SELECT id, type, message, order_id AS orderId, payload, created_at AS createdAt FROM notification_logs ORDER BY id DESC LIMIT 100").toArray();
-  }
-
-  listAnalytics(fromDate = '', toDate = ''): Record<string, SqlStorageValue> {
-    const from = fromDate || '1970-01-01'; const to = toDate || '2999-12-31';
-    return this.ctx.storage.sql.exec("SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue, COALESCE(AVG(total),0) AS averageOrder FROM orders WHERE substr(created_at,1,10) >= ? AND substr(created_at,1,10) <= ? AND order_status NOT IN ('CANCELLED','REJECTED')", from, to).one();
-  }
-
-  getCustomerDetail(email: string): Array<StoreOrder> {
-    return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt, inventory_hold_until AS inventoryHoldUntil, abandoned_at AS abandonedAt FROM orders WHERE email = ? ORDER BY id DESC", email).toArray();
-  }
+  listInventoryMovements(): Array<Record<string, SqlStorageValue>> { return this.ctx.storage.sql.exec("SELECT m.id, m.product_id AS productId, p.name, m.quantity_delta AS quantityDelta, m.reason, m.order_id AS orderId, m.created_at AS createdAt FROM inventory_movements m LEFT JOIN products p ON p.id = m.product_id ORDER BY m.id DESC LIMIT 200").toArray(); }
+  listInventoryHolds(): Array<Record<string, SqlStorageValue>> { return this.ctx.storage.sql.exec("SELECT id, customer_name AS customerName, email, total, order_status AS orderStatus, inventory_hold_until AS holdUntil, created_at AS createdAt FROM orders WHERE inventory_hold_until <> '' ORDER BY id DESC LIMIT 200").toArray(); }
+  listAbandonedCheckouts(): Array<Record<string, SqlStorageValue>> { return this.ctx.storage.sql.exec("SELECT id, user_id AS userId, phone, items, created_at AS createdAt, last_seen_at AS lastSeenAt, abandoned_at AS abandonedAt FROM checkout_intents WHERE abandoned_at <> '' ORDER BY id DESC LIMIT 200").toArray(); }
+  listNotifications(): Array<Record<string, SqlStorageValue>> { return this.ctx.storage.sql.exec("SELECT id, type, message, order_id AS orderId, payload, created_at AS createdAt FROM notification_logs ORDER BY id DESC LIMIT 100").toArray(); }
+  resolveNotification(id: number): void { const row = this.ctx.storage.sql.exec<{ id: number }>("SELECT id FROM notification_logs WHERE id = ?", id).toArray()[0]; if (!row) throw new Error("Notification not found"); this.ctx.storage.sql.exec("UPDATE notification_logs SET payload = ? WHERE id = ?", JSON.stringify({ resolved: true }), id); }
+  listAnalytics(fromDate = '', toDate = ''): Record<string, SqlStorageValue> { const from = fromDate || '1970-01-01'; const to = toDate || '2999-12-31'; return this.ctx.storage.sql.exec("SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue, COALESCE(AVG(total),0) AS averageOrder FROM orders WHERE substr(created_at,1,10) >= ? AND substr(created_at,1,10) <= ? AND order_status NOT IN ('CANCELLED','REJECTED')", from, to).one(); }
+  getCustomerDetail(email: string): Array<StoreOrder> { return this.ctx.storage.sql.exec<StoreOrder>("SELECT id, customer_name AS customerName, email, phone, address, items, item_data AS itemData, subtotal, shipping_fee AS shippingFee, discount, total, gift_included AS giftIncluded, payment_status AS paymentStatus, payment_method AS paymentMethod, utr, screenshot_url AS screenshotUrl, order_status AS orderStatus, created_at AS createdAt, courier, tracking_number AS trackingNumber, cancelled_at AS cancelledAt, inventory_hold_until AS inventoryHoldUntil, abandoned_at AS abandonedAt FROM orders WHERE email = ? ORDER BY id DESC", email).toArray(); }
 
   listProducts(includeInactive = false): StoreProduct[] {
     const fields = "id, name, description, category, price, mrp, rating, reviews, image, badge, stock, active, updated_at AS updatedAt, cost_per_item AS costPerItem, sku, barcode, track_quantity AS trackQuantity, low_stock_threshold AS lowStockThreshold, seo_title AS seoTitle, seo_description AS seoDescription, slug, variants";
@@ -652,5 +625,56 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
       }
       this.ctx.storage.sql.exec("UPDATE customer_otp_requests SET used_at = CURRENT_TIMESTAMP WHERE id = ?", request.id);
       this.ctx.storage.sql.exec("INSERT INTO customer_users (phone, is_verified) VALUES (?, 1) ON CONFLICT(phone) DO UPDATE SET is_verified = 1", phone);
+      user = this.ctx.storage.sql.exec<CustomerUser>("SELECT id, phone, created_at AS createdAt, is_verified AS isVerified, saved_addresses AS savedAddresses FROM customer_users WHERE phone = ?", phone).one();
+    });
+    if (failure) throw new Error(failure);
+    if (!user) throw new Error("Customer verification could not be completed.");
+    return user;
+  }
 
-[Showing lines 1-654 of 708. Use offset=655 to continue.]
+  createCustomerSession(userId: number, sessionHash: string, expiresAt: string): void {
+    this.ctx.storage.sql.exec("DELETE FROM customer_sessions WHERE expires_at < ?", new Date().toISOString());
+    this.ctx.storage.sql.exec("INSERT INTO customer_sessions (session_hash, user_id, expires_at) VALUES (?, ?, ?)", sessionHash, userId, expiresAt);
+  }
+
+  getCustomerBySession(sessionHash: string): CustomerUser | null {
+    const row = this.ctx.storage.sql.exec<CustomerUser>("SELECT customer_users.id, customer_users.phone, customer_users.created_at AS createdAt, customer_users.is_verified AS isVerified, customer_users.saved_addresses AS savedAddresses FROM customer_sessions JOIN customer_users ON customer_users.id = customer_sessions.user_id WHERE customer_sessions.session_hash = ? AND customer_sessions.expires_at > ? AND customer_users.is_verified = 1", sessionHash, new Date().toISOString()).toArray()[0];
+    return row ?? null;
+  }
+
+  getCustomerCart(userId: number): CustomerCartItem[] {
+    const row = this.ctx.storage.sql.exec<{ items: string }>("SELECT items FROM customer_carts WHERE user_id = ?", userId).toArray()[0];
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.items) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((item): item is CustomerCartItem => Boolean(item && typeof item === "object" && Number.isInteger((item as CustomerCartItem).productId) && Number.isInteger((item as CustomerCartItem).quantity) && (item as CustomerCartItem).quantity > 0)) : [];
+    } catch { return []; }
+  }
+
+  saveCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
+    this.ctx.storage.sql.exec("DELETE FROM customer_carts WHERE user_id = ?", userId);
+    return this.mergeCustomerCart(userId, incoming);
+  }
+
+  mergeCustomerCart(userId: number, incoming: CustomerCartItem[]): CustomerCartItem[] {
+    const merged = new Map<number, number>();
+    for (const item of [...this.getCustomerCart(userId), ...incoming]) {
+      if (!Number.isInteger(item.productId) || !Number.isInteger(item.quantity) || item.productId < 1 || item.quantity < 1) continue;
+      merged.set(item.productId, (merged.get(item.productId) ?? 0) + Math.min(item.quantity, 100));
+    }
+    const safeItems: CustomerCartItem[] = [];
+    for (const [productId, quantity] of merged) {
+      const product = this.ctx.storage.sql.exec<{ stock: number; active: number }>("SELECT stock, active FROM products WHERE id = ?", productId).toArray()[0];
+      if (!product || product.active !== 1 || product.stock < 1) continue;
+      safeItems.push({ productId, quantity: Math.min(quantity, product.stock) });
+    }
+    this.ctx.storage.sql.exec("INSERT INTO customer_carts (user_id, items, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET items = excluded.items, updated_at = CURRENT_TIMESTAMP", userId, JSON.stringify(safeItems));
+    return safeItems;
+  }
+
+  updateSettings(fields: Partial<Pick<StoreSettings, "storeName" | "supportPhone" | "lowStockThreshold" | "announcement" | "storeEmail" | "currency" | "timezone" | "codEnabled" | "codMinOrder" | "codMaxOrder" | "upiVpa" | "googlePlacesApiKey" | "blockedPincodes">>): void {
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined) this.ctx.storage.sql.exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, Array.isArray(value) ? JSON.stringify(value) : String(value));
+    }
+  }
+}
