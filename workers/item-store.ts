@@ -372,6 +372,13 @@ export class ItemStore extends DurableObject<ItemStoreEnv> {
     return { storeName: values.storeName ?? "Cool Masala", supportPhone: values.supportPhone ?? "", lowStockThreshold: Number(values.lowStockThreshold ?? 10), announcement: values.announcement ?? "", storeEmail: values.storeEmail ?? "", currency: values.currency ?? "INR", timezone: values.timezone ?? "Asia/Kolkata", codEnabled: Number(values.codEnabled ?? 1), codMinOrder: Number(values.codMinOrder ?? 0), codMaxOrder: Number(values.codMaxOrder ?? 2000), upiVpa: values.upiVpa ?? "", googlePlacesApiKey: values.googlePlacesApiKey ?? "", blockedPincodes };
   }
 
+  unarchiveProduct(id: number): void {
+    const product = this.ctx.storage.sql.exec<{ name: string }>("SELECT name FROM products WHERE id = ?", id).toArray()[0];
+    if (!product) throw new Error("Product not found");
+    this.ctx.storage.sql.exec("UPDATE products SET active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+    this.logNotification("PRODUCT_UNARCHIVED", `Product ${product.name} restored`, null, { productId: id });
+  }
+
   updateProduct(id: number, fields: Partial<StoreProduct>): void {
     const columnMap: Record<string, string> = { name: "name", description: "description", category: "category", price: "price", mrp: "mrp", image: "image", badge: "badge", stock: "stock", active: "active", costPerItem: "cost_per_item", sku: "sku", barcode: "barcode", trackQuantity: "track_quantity", lowStockThreshold: "low_stock_threshold", seoTitle: "seo_title", seoDescription: "seo_description", slug: "slug", variants: "variants" };
     const entries = Object.entries(fields).filter(([key, value]) => columnMap[key] && value !== undefined);
