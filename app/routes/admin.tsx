@@ -64,8 +64,8 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const authenticated = await hasAdminSession(request, env);
   if (!authenticated) return { authenticated: false as const, setupRequired: !env.ADMIN_ACCESS_KEY, twoFactorConfigured: Boolean(env.ADMIN_TOTP_SECRET) };
   const items = store(context);
-  const [dashboard, products, orders, pendingApprovals, expenses, settings, customers, discounts] = await Promise.all([items.getDashboard(), items.listProducts(true), items.listOrders(), items.listPendingApprovals(), items.listExpenses(), items.getSettings(), items.listCustomers(), items.listDiscounts()]);
-  return { authenticated: true as const, dashboard, products, orders, pendingApprovals, expenses, settings, customers, discounts, twoFactorConfigured: Boolean(env.ADMIN_TOTP_SECRET) };
+  const [dashboard, products, orders, pendingApprovals, expenses, settings, customers, discounts, inventoryMovements, inventoryHolds, abandonedCheckouts, notifications] = await Promise.all([items.getDashboard(), items.listProducts(true), items.listOrders(), items.listPendingApprovals(), items.listExpenses(), items.getSettings(), items.listCustomers(), items.listDiscounts(), items.listInventoryMovements(), items.listInventoryHolds(), items.listAbandonedCheckouts(), items.listNotifications()]);
+  return { authenticated: true as const, dashboard, products, orders, pendingApprovals, expenses, settings, customers, discounts, inventoryMovements, inventoryHolds, abandonedCheckouts, notifications, twoFactorConfigured: Boolean(env.ADMIN_TOTP_SECRET) };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -187,6 +187,7 @@ const navItems: { id: string; label: string; icon: Icon; group?: string; countKe
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "discounts", label: "Discounts", icon: Tag },
   { id: "settings", label: "Settings", icon: Settings, group: "Configuration" },
+  { id: "operations", label: "Operations", icon: PackageCheck, group: "Operations" },
 ];
 
 export default function Admin() {
@@ -268,10 +269,17 @@ export default function Admin() {
           {section === "discounts" && <Discounts discounts={discounts} saving={saving} />}
           {section === "settings" && <SettingsPanel settings={settings} saving={saving} />}
           {section === "analytics" && <Roadmap title="Analytics" icon={BarChart3} text="Sales totals and order value trend are live on Home. Session, conversion and product analytics need tracking data that is not currently collected, so this module stays honest instead of showing invented metrics." />}
+          {section === "operations" && <OperationsPanel inventoryMovements={data.inventoryMovements as Array<Record<string, unknown>>} inventoryHolds={data.inventoryHolds as Array<Record<string, unknown>>} abandonedCheckouts={data.abandonedCheckouts as Array<Record<string, unknown>>} notifications={data.notifications as Array<Record<string, unknown>>} />}
         </div>
       </main>
     </div>
   </div>;
+}
+
+function OperationsPanel({ inventoryMovements, inventoryHolds, abandonedCheckouts, notifications }: { inventoryMovements: Array<Record<string, unknown>>; inventoryHolds: Array<Record<string, unknown>>; abandonedCheckouts: Array<Record<string, unknown>>; notifications: Array<Record<string, unknown>> }) {
+  const downloadCsv = () => { const rows = inventoryMovements; const headers = ["id", "name", "quantityDelta", "reason", "orderId", "createdAt"]; const csv = [headers.join(","), ...rows.map((row) => headers.map((key) => \"\" + String(row[key] ?? \"\").replaceAll(\"\", \"\"\") + \"\").join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "inventory-movements.csv"; link.click(); URL.revokeObjectURL(link.href); };
+  const card = (title: string, rows: Array<Record<string, unknown>>, keys: string[]) => <section className=\"overflow-hidden rounded-xl border border-[#e1e3e5] bg-white shadow-sm\"><div className=\"flex items-center justify-between border-b border-[#e1e3e5] p-5\"><div><h2 className=\"font-bold\">{title}</h2><p className=\"mt-1 text-xs text-[#6d7175]\">{rows.length} live records</p></div>{title === \"Inventory movement history\" && <button type=\"button\" onClick={downloadCsv} className=\"rounded-lg border border-[#c9cccf] px-3 py-2 text-xs font-semibold\">Export CSV</button>}</div>{rows.length ? <div className=\"overflow-x-auto\"><table className=\"w-full min-w-[680px] text-left text-sm\"><thead className=\"bg-[#fafbfb] text-[11px] uppercase text-[#6d7175]\"><tr>{keys.map((key) => <th key={key} className=\"px-4 py-3\">{key}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index} className=\"border-t border-[#f0f1f2]\">{keys.map((key) => <td key={key} className=\"px-4 py-3\">{String(row[key] ?? \"—\")}</td>)}</tr>)}</tbody></table></div> : <p className=\"p-6 text-sm text-[#6d7175]\">No records found yet. This panel only shows real store data.</p>}</section>;
+  return <div><div className=\"mb-5 flex flex-wrap items-center justify-between gap-3\"><div><h2 className=\"text-xl font-bold\">Operations</h2><p className=\"mt-1 text-sm text-[#6d7175]\">All requested operations are now inside the main admin panel.</p></div></div><div className=\"grid gap-6 xl:grid-cols-2\">{card(\"Abandoned carts\", abandonedCheckouts, [\"id\", \"phone\", \"items\", \"lastSeenAt\", \"abandonedAt\"])}{card(\"Inventory holds / reservations\", inventoryHolds, [\"id\", \"customerName\", \"email\", \"total\", \"orderStatus\", \"holdUntil\"])}{card(\"Inventory movement history\", inventoryMovements, [\"id\", \"name\", \"quantityDelta\", \"reason\", \"orderId\", \"createdAt\"])}{card(\"Notifications\", notifications, [\"id\", \"type\", \"message\", \"orderId\", \"createdAt\"])}</div></div>;
 }
 
 function Login({ data }: { data: Extract<Awaited<ReturnType<typeof loader>>, { authenticated: false }> }) {
